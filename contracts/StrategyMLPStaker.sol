@@ -328,6 +328,13 @@ contract StrategyMLPStaker is BaseStrategy {
         }
     }
 
+    /// @notice Part 1 of our strategy migration. Pull it out manually for migrating to new want
+    /// @dev May only be called by governance.
+    /// @param _newStrategy Address of the new strategy we are migrating to.
+    function manualTransfer(address _newStrategy) external onlyGovernance {
+        rewardRouter.signalTransfer(_newStrategy);
+    }
+
     /// @notice Part 2 of our strategy migration. Must do before harvesting the new strategy.
     /// @dev May only be called by governance.
     /// @param _oldStrategy Address of the old strategy we are migrating from.
