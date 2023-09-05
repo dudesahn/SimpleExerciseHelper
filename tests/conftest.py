@@ -12,8 +12,8 @@ def isolate(fn_isolation):
 # set this for if we want to use tenderly or not; mostly helpful because with brownie.reverts fails in tenderly forks.
 use_tenderly = False
 
-# use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum
-chain_used = 250
+# use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
+chain_used = 8453
 
 
 ################################################## TENDERLY DEBUGGING ##################################################
@@ -42,7 +42,7 @@ def tenderly_fork(web3, chain):
 
 @pytest.fixture(scope="session")
 def token():
-    token_address = "0x7D46aee42de131AFa80Acd72094Cf98f3242b926"  # this should be the address of the ERC-20 used by the strategy/vault (sMLP)
+    token_address = "0x64755939a80BC89E1D2d0f93A312908D348bC8dE"  # this should be the address of the ERC-20 used by the strategy/vault (sMLP)
     yield interface.IERC20(token_address)
 
 
@@ -272,6 +272,56 @@ elif chain_used == 250:  # fantom
     def trade_factory():
         yield to_sweep
 
+elif chain_used == 8453:  # base
+
+    @pytest.fixture(scope="session")
+    def gov():  # BMX multisig
+        yield accounts.at("0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec", force=True)
+
+    @pytest.fixture(scope="session")
+    def health_check():
+        yield interface.IHealthCheck("0x8273217252254Ad7353f227aaEcd2b1C4A326Fa2")
+
+    @pytest.fixture(scope="session")
+    def base_fee_oracle():
+        yield interface.IBaseFeeOracle("0x298Bd23E25C01440D68d4D2708bFf6A7E10a1db5")
+
+    # set all of the following to Scream Guardian MS
+    @pytest.fixture(scope="session")
+    def management():
+        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+
+    @pytest.fixture(scope="session")
+    def rewards(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def guardian(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def strategist(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def keeper(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def to_sweep():
+        # token we can sweep out of strategy (use DAI)
+        yield interface.IERC20("0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb")
+
+    # deploy this eventually
+
+    @pytest.fixture(scope="session")
+    def keeper_wrapper():
+        yield to_sweep
+
+    @pytest.fixture(scope="session")
+    def trade_factory():
+        yield to_sweep
+
 
 @pytest.fixture(scope="module")
 def vault(pm, gov, rewards, guardian, management, token, vault_address):
@@ -364,12 +414,6 @@ def strategy(
 @pytest.fixture(scope="session")
 def is_gmx():
     yield True
-
-
-# use this to set what percentage of our esMPX we vest (0, 10%, 50%)
-@pytest.fixture(scope="session", params=[0, 1000, 5000])
-def to_vest(request):
-    yield request.param
 
 
 # our wMLP oracle
