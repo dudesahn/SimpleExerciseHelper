@@ -69,11 +69,10 @@ contract wBLTRouter is Ownable2Step {
     }
 
     function updateAllowances() public onlyOwner {
-        address bltManager = 0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5;
         // first, set all of our allowances to zero
         for (uint i = 0; i < bltTokens.length; ++i) {
             IERC20 token = IERC20(bltTokens[i]);
-            token.approve(bltManager, 0);
+            token.approve(address(bltManager), 0);
         }
 
         // clear out our saved array
@@ -82,10 +81,8 @@ contract wBLTRouter is Ownable2Step {
         // add our new tokens
         uint256 tokensCount = morphexVault.whitelistedTokenCount();
         for (uint i = 0; i < tokensCount; ++i) {
-            IERC20 token = IERC20(
-                morphexVault.allWhitelistedTokens(tokensCount)
-            );
-            token.approve(bltManager, type(uint256).max);
+            IERC20 token = IERC20(morphexVault.allWhitelistedTokens(i));
+            token.approve(address(bltManager), type(uint256).max);
             bltTokens.push(address(token));
         }
     }
@@ -155,6 +152,14 @@ contract wBLTRouter is Ownable2Step {
                     routes[0].from,
                     msg.sender,
                     address(this),
+                    amounts[0]
+                );
+            } else {
+                // if it's not wBLT AND an underlying, it's just a normal wBLT swap (likely w/ BMX)
+                _safeTransferFrom(
+                    routes[0].from,
+                    msg.sender,
+                    pairFor(routes[0].from, routes[0].to, routes[0].stable),
                     amounts[0]
                 );
             }
@@ -291,9 +296,22 @@ contract wBLTRouter is Ownable2Step {
             amountBMin
         );
         address pair = pairFor(tokenA, tokenB, false);
-        _safeTransferFrom(tokenA, msg.sender, pair, amountA);
-        _safeTransferFrom(tokenB, msg.sender, pair, amountB);
+
+        // wBLT will already be in the router, so transfer for it. transferFrom for other token.
+        if (tokenA == address(wBLT)) {
+            _safeTransfer(tokenA, pair, amountA);
+            _safeTransferFrom(tokenB, msg.sender, pair, amountB);
+        } else {
+            _safeTransfer(tokenB, pair, amountB);
+            _safeTransferFrom(tokenA, msg.sender, pair, amountA);
+        }
+
         liquidity = IPair(pair).mint(to);
+        uint256 remainingBalance = wBLT.balanceOf(address(this));
+        // return any leftover wBLT
+        if (remainingBalance > 0) {
+            _safeTransfer(address(wBLT), msg.sender, remainingBalance);
+        }
     }
 
     function exerciseLpWithUnderlying(
@@ -345,8 +363,8 @@ contract wBLTRouter is Ownable2Step {
             usdgAmount
         );
         uint256 afterFeeAmount = (_amount *
-            morphexVault.BASIS_POINTS_DIVISOR() -
-            feeBasisPoints) / morphexVault.BASIS_POINTS_DIVISOR();
+            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
+            morphexVault.BASIS_POINTS_DIVISOR();
 
         uint256 usdgMintAmount = (afterFeeAmount * price) /
             morphexVault.PRICE_PRECISION();
@@ -388,8 +406,8 @@ contract wBLTRouter is Ownable2Step {
             usdgAmount
         );
         uint256 afterFeeAmount = (redeemAmount *
-            morphexVault.BASIS_POINTS_DIVISOR() -
-            feeBasisPoints) / morphexVault.BASIS_POINTS_DIVISOR();
+            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
+            morphexVault.BASIS_POINTS_DIVISOR();
 
         return afterFeeAmount;
     }
@@ -411,8 +429,8 @@ contract wBLTRouter is Ownable2Step {
             revert("Token not in wBLT");
         }
 
-        // withdraw from the vault first
-        uint256 toWithdraw = wBLT.withdraw();
+        // withdraw from the vault first, make sure it comes here
+        uint256 toWithdraw = wBLT.withdraw(type(uint256).max, address(this));
 
         // withdraw our targetToken
         return
@@ -439,7 +457,9 @@ contract wBLTRouter is Ownable2Step {
             0,
             0
         );
-        tokens = wBLT.deposit(newMlp);
+
+        // specify that router should get the vault tokens
+        tokens = wBLT.deposit(newMlp, address(this));
     }
 
     /* ========== UNMODIFIED FUNCTIONS ========== */
