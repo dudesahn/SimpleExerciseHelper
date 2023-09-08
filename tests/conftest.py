@@ -432,3 +432,34 @@ def oracle(wMlpPessimisticOracle, guardian, strategy, vault):
 def destination_strategy():
     # destination strategy of the route
     yield interface.ICurveStrategy045("0x49D8b010243a4aD4B1dF53E3B3a2986861A0C8c3")
+
+
+if chain_used == 8453:
+    # use these for our BLT router testing
+    @pytest.fixture(scope="function")
+    def screamsh():
+        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+
+    @pytest.fixture(scope="function")
+    def w_blt():
+        yield Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
+
+    @pytest.fixture(scope="function")
+    def router():
+        yield Contract("0x2ce0beE195064c38Dd7Dc13B54134d7894EeF3Ca")
+
+    @pytest.fixture(scope="function")
+    def weth():
+        yield Contract("0x4200000000000000000000000000000000000006")
+
+    @pytest.fixture(scope="function")
+    def bmx():
+        yield Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
+
+    @pytest.fixture(scope="function")
+    def factory():
+        yield "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
+
+    @pytest.fixture(scope="function")
+    def usdc():
+        yield Contract("0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA")
