@@ -86,6 +86,99 @@ def test_basic_swaps(
     print("✅  Swapped from wBLT back to WETH")
 
 
+def test_eth_swaps(
+    bmx,
+    screamsh,
+    w_blt,
+    router,
+    weth,
+    factory,
+    usdc,
+):
+    # ETH whale sends some to screamsh
+    eth_whale = accounts.at("0x224D8Fd7aB6AD4c6eb4611Ce56EF35Dec2277F03", force=True)
+    eth_whale.transfer(screamsh, 5e18)
+    assert screamsh.balance() > 1e18
+
+    # swap ETH to wBLT
+    weth_to_swap = 1e18
+    weth_to_wblt = [(weth.address, w_blt.address, False)]
+    before = w_blt.balanceOf(screamsh)
+    before_eth = screamsh.balance()
+    router.swapExactETHForTokens(
+        weth_to_swap,
+        0,
+        weth_to_wblt,
+        screamsh,
+        2**256 - 1,
+        {"from": screamsh, "value": 1e18},
+    )
+    assert screamsh.balance() < before_eth
+    assert w_blt.balanceOf(screamsh) > before
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    print("✅  Swapped from ether to wBLT")
+
+    # swap wBLT to ETH
+    wblt_to_swap = w_blt.balanceOf(screamsh)
+    w_blt.approve(router, 2**256 - 1, {"from": screamsh})
+    back_to_weth = [(w_blt.address, weth.address, False)]
+    before_eth = screamsh.balance()
+    router.swapExactTokensForETH(
+        wblt_to_swap, 0, back_to_weth, screamsh, 2**256 - 1, {"from": screamsh}
+    )
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert w_blt.balanceOf(screamsh) == 0
+    assert screamsh.balance() > before_eth
+    print("✅  Swapped from wBLT back to ether")
+
+    # swap for some BMX from ETH
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    before = bmx.balanceOf(screamsh)
+    before_eth = screamsh.balance()
+    router.swapExactETHForTokens(
+        weth_to_swap,
+        0,
+        weth_to_bmx,
+        screamsh,
+        2**256 - 1,
+        {"from": screamsh, "value": 1e18},
+    )
+    assert bmx.balanceOf(screamsh) > before
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert screamsh.balance() < before_eth
+    print("✅  Swapped ether to BMX")
+
+    # approve our BMX, back to ETH
+    bmx.approve(router, 2**256 - 1, {"from": screamsh})
+    bmx_to_usdc = [
+        (bmx.address, w_blt.address, False),
+        (w_blt.address, usdc.address, False),
+    ]
+    before_eth = screamsh.balance()
+    bmx_to_swap = bmx.balanceOf(screamsh)
+    before = usdc.balanceOf(screamsh)
+    router.swapExactTokensForETH(
+        bmx_to_swap, 0, bmx_to_usdc, screamsh.address, 2**256 - 1, {"from": screamsh}
+    )
+    assert usdc.balanceOf(screamsh) > before
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert bmx.balanceOf(screamsh) == 0
+    assert screamsh.balance() > before_eth
+    print("✅  Swapped back from BMX to ether")
+
+
 def test_long_route_swap(
     bmx,
     screamsh,
@@ -215,6 +308,10 @@ def test_add_liq_ether(
     factory,
     usdc,
 ):
+    # ETH whale sends some to screamsh
+    eth_whale = accounts.at("0x224D8Fd7aB6AD4c6eb4611Ce56EF35Dec2277F03", force=True)
+    eth_whale.transfer(screamsh, 5e18)
+    assert screamsh.balance() > 1e18
 
     # add liquidity
     # swap for some BMX
@@ -232,8 +329,16 @@ def test_add_liq_ether(
     assert bmx.balanceOf(screamsh) > before
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
+
     router.addLiquidityETH(
-        1e18, bmx, 500e18, 500e18, 0, 0, screamsh.address, {"from": screamsh}
+        1e18,
+        bmx,
+        500e18,
+        500e18,
+        0,
+        0,
+        screamsh.address,
+        {"from": screamsh, "value": 1e18},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -253,6 +358,34 @@ def test_remove_liq(
     factory,
     usdc,
 ):
+    # whales deposit USDC and WETH to give us some flexibility, USDC-WETH pool on aerodrome
+    token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+    weth.approve(router, 2**256 - 1, {"from": token_whale})
+    usdc.approve(router, 2**256 - 1, {"from": token_whale})
+
+    weth_to_wblt = [
+        (weth.address, w_blt.address, False),
+    ]
+    weth_to_swap = 10e18
+
+    usdc_to_wblt = [
+        (usdc.address, w_blt.address, False),
+    ]
+    usdc_to_swap = 10_000e6
+
+    router.swapExactTokensForTokens(
+        weth_to_swap, 0, weth_to_wblt, token_whale, 2**256 - 1, {"from": token_whale}
+    )
+
+    router.swapExactTokensForTokens(
+        usdc_to_swap, 0, usdc_to_wblt, token_whale, 2**256 - 1, {"from": token_whale}
+    )
+
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    print("✅  Lots of deposits to wBLT")
 
     # add liquidity
     # swap for some BMX
@@ -284,6 +417,7 @@ def test_remove_liq(
     chain.mine(1)
 
     # remove our liq
+    lp.approve(router, 2**256 - 1, {"from": screamsh})
     before_bmx = bmx.balanceOf(screamsh)
     before_weth = weth.balanceOf(screamsh)
     router.removeLiquidity(
@@ -300,7 +434,7 @@ def test_remove_liq(
     print("✅  Removed liquidity for BMX-wBLT to WETH+BMX")
 
 
-def test_options(
+def test_remove_liq_ether(
     bmx,
     screamsh,
     w_blt,
@@ -309,31 +443,40 @@ def test_options(
     factory,
     usdc,
 ):
+    # whales deposit USDC and WETH to give us some flexibility, USDC-WETH pool on aerodrome
+    token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+    weth.approve(router, 2**256 - 1, {"from": token_whale})
+    usdc.approve(router, 2**256 - 1, {"from": token_whale})
 
-    # testing oBMX
-    obmx = Contract("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
-    screamsh = accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
-    w_blt = Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
-    router = Contract("0x2ce0beE195064c38Dd7Dc13B54134d7894EeF3Ca")
-    weth_to_mint = 1e15
-    weth = Contract("0x4200000000000000000000000000000000000006")
-    bmx = Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
-    factory = "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
-    usdc = Contract("0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA")
+    weth_to_wblt = [
+        (weth.address, w_blt.address, False),
+    ]
+    weth_to_swap = 10e18
 
-    weth.approve(router, 2**256 - 1, {"from": screamsh})
-    obmx.approve(router, 2**256 - 1, {"from": screamsh})
-    router.setoBmxAddress(obmx, {"from": screamsh})
-    router.exerciseLpWithUnderlying(
-        weth.address, 1e17, 1e18, 35, 2**256 - 1, {"from": screamsh}
+    usdc_to_wblt = [
+        (usdc.address, w_blt.address, False),
+    ]
+    usdc_to_swap = 10_000e6
+
+    router.swapExactTokensForTokens(
+        weth_to_swap, 0, weth_to_wblt, token_whale, 2**256 - 1, {"from": token_whale}
     )
+
+    router.swapExactTokensForTokens(
+        usdc_to_swap, 0, usdc_to_wblt, token_whale, 2**256 - 1, {"from": token_whale}
+    )
+
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    assert lp.balanceOf(router) == 0
+    print("✅  Lots of deposits to wBLT")
 
-    weth_to_swap = 1e15
+    # add liquidity
+    # swap for some BMX
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    bmx.approve(router, 2**256 - 1, {"from": screamsh})
+    weth_to_swap = 1e18
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -345,8 +488,8 @@ def test_options(
     assert bmx.balanceOf(screamsh) > before
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
-    router.addLiquidityWBLT(
-        weth, 1e15, w_blt, bmx, 1e17, 1e17, 0, 0, screamsh.address, {"from": screamsh}
+    router.addLiquidity(
+        weth, 1e18, bmx, 50e18, 50e18, 0, 0, screamsh.address, {"from": screamsh}
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -354,3 +497,49 @@ def test_options(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert lp.balanceOf(screamsh) > 0
+    print("✅  Added liquidity for BMX-wBLT with WETH")
+    chain.sleep(1)
+    chain.mine(1)
+
+    # remove our liq
+    lp.approve(router, 2**256 - 1, {"from": screamsh})
+    before_bmx = bmx.balanceOf(screamsh)
+    before_eth = screamsh.balance()
+    router.removeLiquidityETH(
+        bmx, lp.balanceOf(screamsh), 0, 0, screamsh.address, {"from": screamsh}
+    )
+    assert before_bmx < bmx.balanceOf(screamsh)
+    assert before_eth < screamsh.balance()
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert lp.balanceOf(router) == 0
+    assert lp.balanceOf(screamsh) == 0
+    print("✅  Removed liquidity for BMX-wBLT to ether+BMX")
+
+
+def test_options(
+    bmx,
+    screamsh,
+    w_blt,
+    router,
+    weth,
+    factory,
+    usdc,
+    gauge,
+    obmx,
+):
+
+    # testing oBMX
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    obmx.approve(router, 2**256 - 1, {"from": screamsh})
+    router.exerciseLpWithUnderlying(
+        weth.address, 1e17, 1e18, 35, 2**256 - 1, {"from": screamsh}
+    )
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert lp.balanceOf(router) == 0
+    assert gauge.balanceOf(screamsh) > 0

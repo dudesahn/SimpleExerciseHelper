@@ -21,15 +21,34 @@ chain_used = 8453
 # change autouse to True if we want to use this fork to help debug tests
 @pytest.fixture(scope="session", autouse=use_tenderly)
 def tenderly_fork(web3, chain):
-    fork_base_url = "https://simulate.yearn.network/fork"
-    payload = {"network_id": str(chain.id)}
-    resp = requests.post(fork_base_url, headers={}, json=payload)
-    fork_id = resp.json()["simulation_fork"]["id"]
+    import requests
+    import os
+
+    # Get env variables
+    TENDERLY_ACCESS_KEY = os.environ.get("TENDERLY_ACCESS_KEY")
+    TENDERLY_USER = os.environ.get("TENDERLY_USER")
+    TENDERLY_PROJECT = os.environ.get("TENDERLY_PROJECT")
+
+    # Construct request
+    url = f"https://api.tenderly.co/api/v1/account/{TENDERLY_USER}/project/{TENDERLY_PROJECT}/fork"
+    headers = {"X-Access-Key": str(TENDERLY_ACCESS_KEY)}
+    data = {
+        "network_id": str(chain.id),
+    }
+
+    # Post request
+    response = requests.post(url, json=data, headers=headers)
+
+    # Parse response
+    fork_id = response.json()["simulation_fork"]["id"]
+
+    # Set provider to your new Tenderly fork
     fork_rpc_url = f"https://rpc.tenderly.co/fork/{fork_id}"
-    print(fork_rpc_url)
     tenderly_provider = web3.HTTPProvider(fork_rpc_url, {"timeout": 600})
     web3.provider = tenderly_provider
-    print(f"https://dashboard.tenderly.co/yearn/yearn-web/fork/{fork_id}")
+    print(
+        f"https://dashboard.tenderly.co/{TENDERLY_USER}/{TENDERLY_PROJECT}/fork/{fork_id}"
+    )
 
 
 ################################################ UPDATE THINGS BELOW HERE ################################################
@@ -437,6 +456,12 @@ def destination_strategy():
 if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
+    def router(wBLTRouter, factory, weth, screamsh):
+        router = screamsh.deploy(wBLTRouter, factory, weth)
+        # router = Contract("0xBe05d55105d1fa9cDAe2508314d3df245dAa96ad")
+        yield router
+
+    @pytest.fixture(scope="function")
     def screamsh():
         yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
@@ -445,8 +470,8 @@ if chain_used == 8453:
         yield Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
 
     @pytest.fixture(scope="function")
-    def router():
-        yield Contract("0x2ce0beE195064c38Dd7Dc13B54134d7894EeF3Ca")
+    def gauge():
+        yield Contract("0x1F7B5E65c09dF12742255BB8Fe26958f4B52F9bb")
 
     @pytest.fixture(scope="function")
     def weth():
@@ -459,6 +484,10 @@ if chain_used == 8453:
     @pytest.fixture(scope="function")
     def factory():
         yield "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
+
+    @pytest.fixture(scope="function")
+    def obmx():
+        yield Contract("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
 
     @pytest.fixture(scope="function")
     def usdc():

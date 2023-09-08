@@ -157,7 +157,7 @@ contract wBLTRouter is Ownable2Step {
         route[] calldata routes,
         address to,
         uint deadline
-    ) public payable returns (uint[] memory amounts) {
+    ) public payable ensure(deadline) returns (uint[] memory amounts) {
         // tbh just do this manually, becuase realistically you're only using this to swap from wBLT or BMX
         amounts = getAmountsOut(amountIn, routes);
         require(
@@ -205,7 +205,7 @@ contract wBLTRouter is Ownable2Step {
         route[] calldata routes,
         address to,
         uint deadline
-    ) public payable returns (uint[] memory amounts) {
+    ) public payable ensure(deadline) returns (uint[] memory amounts) {
         amounts = getAmountsOut(amountIn, routes);
         require(
             amounts[amounts.length - 1] >= amountOutMin,
@@ -414,7 +414,7 @@ contract wBLTRouter is Ownable2Step {
         );
 
         // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
-        uint256 amountWBLTDesired = _depositToWrappedBLT(underlyingToken);
+        amountWBLTDesired = _depositToWrappedBLT(underlyingToken);
 
         (amountWBLT, amountToken) = _addLiquidity(
             address(wBLT),
@@ -461,7 +461,11 @@ contract wBLTRouter is Ownable2Step {
         uint amountWBLTMin,
         uint amountTokenMin,
         address to
-    ) external returns (uint amountWBLT, uint amountToken, uint liquidity) {
+    )
+        external
+        payable
+        returns (uint amountWBLT, uint amountToken, uint liquidity)
+    {
         // deposit to weth, then everything is the same
         weth.deposit{value: amountToZapIn}();
         if (weth.balanceOf(address(this)) != amountToZapIn) {
@@ -469,7 +473,7 @@ contract wBLTRouter is Ownable2Step {
         }
 
         // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
-        uint256 amountBDesired = _depositToWrappedBLT(address(weth));
+        amountWBLTDesired = _depositToWrappedBLT(address(weth));
 
         (amountWBLT, amountToken) = _addLiquidity(
             address(wBLT),
@@ -530,7 +534,7 @@ contract wBLTRouter is Ownable2Step {
 
         _safeTransfer(token, to, amountToken);
 
-        uint256 withdrawnAmount = _withdrawFromWrappedBLT(targetToken);
+        withdrawnAmount = _withdrawFromWrappedBLT(targetToken);
         _safeTransfer(targetToken, to, withdrawnAmount);
     }
 
@@ -568,7 +572,7 @@ contract wBLTRouter is Ownable2Step {
 
         // send our ether and token to their final destination
         _safeTransfer(token, to, amountToken);
-        uint256 withdrawnAmount = _withdrawFromWrappedBLT(address(weth));
+        withdrawnAmount = _withdrawFromWrappedBLT(address(weth));
         weth.withdraw(withdrawnAmount);
         _safeTransferETH(to, withdrawnAmount);
     }
