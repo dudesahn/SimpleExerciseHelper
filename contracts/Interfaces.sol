@@ -450,6 +450,8 @@ interface IBMX is IERC20 {
 
     function maxUsdgAmounts(address _token) external view returns (uint256);
 
+    function getLivePrice() external view returns (uint256);
+
     function getRedemptionAmount(
         address _token,
         uint256 _usdgAmount

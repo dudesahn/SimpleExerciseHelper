@@ -14,7 +14,7 @@ def test_basic_swaps(
 
     # test views
     weth_to_mint = 1e15
-    to_mint = router.getMintAmountBLT(weth, weth_to_mint)
+    to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
     print("Mint wBLT with 0.001 ETH", to_mint / 1e18)
 
     weth_to_swap = 1e15
@@ -100,9 +100,15 @@ def test_eth_swaps(
     eth_whale.transfer(screamsh, 5e18)
     assert screamsh.balance() > 1e18
 
-    # swap ETH to wBLT
+    # basic data
     weth_to_swap = 1e18
+    weth_to_bmx = [
+        (weth.address, w_blt.address, False),
+        (w_blt.address, bmx.address, False),
+    ]
     weth_to_wblt = [(weth.address, w_blt.address, False)]
+
+    # swap ETH to wBLT
     before = w_blt.balanceOf(screamsh)
     before_eth = screamsh.balance()
     router.swapExactETHForTokens(
@@ -169,7 +175,7 @@ def test_eth_swaps(
     router.swapExactTokensForETH(
         bmx_to_swap, 0, bmx_to_usdc, screamsh.address, 2**256 - 1, {"from": screamsh}
     )
-    assert usdc.balanceOf(screamsh) > before
+    assert usdc.balanceOf(screamsh) == before
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
@@ -275,7 +281,7 @@ def test_add_liq(
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
-    weth_to_swap = 1e18
+    weth_to_swap = 1e15
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -285,10 +291,25 @@ def test_add_liq(
         weth_to_swap, 0, weth_to_bmx, screamsh, 2**256 - 1, {"from": screamsh}
     )
     assert bmx.balanceOf(screamsh) > before
+
+    # calculate how much liquidity we need to add
+    quote = router.quoteAddLiquidityUnderlying(weth, bmx, 1e15, 1e18)
+    underlying_to_add = quote[0]
+    wblt_expected = quote[1]
+    token_to_add = quote[2]
+
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
     router.addLiquidity(
-        weth, 1e18, bmx, 50e18, 50e18, 0, 0, screamsh.address, {"from": screamsh}
+        weth,
+        underlying_to_add,
+        bmx,
+        wblt_expected,
+        token_to_add,
+        0,
+        0,
+        screamsh.address,
+        {"from": screamsh},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -317,7 +338,7 @@ def test_add_liq_ether(
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
-    weth_to_swap = 1e18
+    weth_to_swap = 1e15
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -327,18 +348,25 @@ def test_add_liq_ether(
         weth_to_swap, 0, weth_to_bmx, screamsh, 2**256 - 1, {"from": screamsh}
     )
     assert bmx.balanceOf(screamsh) > before
+
+    # calculate how much liquidity we need to add
+    quote = router.quoteAddLiquidityUnderlying(weth, bmx, 1e15, 1e18)
+    underlying_to_add = quote[0]
+    wblt_expected = quote[1]
+    token_to_add = quote[2]
+
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
 
     router.addLiquidityETH(
-        1e18,
+        underlying_to_add,
         bmx,
-        500e18,
-        500e18,
+        wblt_expected,
+        token_to_add,
         0,
         0,
         screamsh.address,
-        {"from": screamsh, "value": 1e18},
+        {"from": screamsh, "value": underlying_to_add},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -534,8 +562,30 @@ def test_options(
     # testing oBMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     obmx.approve(router, 2**256 - 1, {"from": screamsh})
+
+    # figure out how much weth we need for our oBMX balance
+    # calculate wBLT needed for our oBMX
+    to_exercise = 1e17
+    discount = 35
+    output = obmx.getPaymentTokenAmountForExerciseLp(
+        to_exercise, discount, {"from": screamsh}
+    )
+    w_blt_needed = output[1]
+
+    # calculate our WETH needed for wBLT
+    weth_needed = router.quoteMintAmountBLT(weth, w_blt_needed, {"from": screamsh})
+    lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
+    assert lp.balanceOf(screamsh) == 0
+    before_obmx = obmx.balanceOf(screamsh)
+    before_weth = weth.balanceOf(screamsh)
+
     router.exerciseLpWithUnderlying(
-        weth.address, 1e17, 1e18, 35, 2**256 - 1, {"from": screamsh}
+        weth.address,
+        weth_needed,
+        to_exercise,
+        discount,
+        2**256 - 1,
+        {"from": screamsh},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -543,3 +593,60 @@ def test_options(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert gauge.balanceOf(screamsh) > 0
+    assert lp.balanceOf(screamsh) == 0
+    assert weth.balanceOf(screamsh) < before_weth
+    assert obmx.balanceOf(screamsh) < before_obmx
+
+
+def test_options_eth(
+    bmx,
+    screamsh,
+    w_blt,
+    router,
+    weth,
+    factory,
+    usdc,
+    gauge,
+    obmx,
+):
+    # ETH whale sends some to screamsh
+    eth_whale = accounts.at("0x224D8Fd7aB6AD4c6eb4611Ce56EF35Dec2277F03", force=True)
+    eth_whale.transfer(screamsh, 5e18)
+    assert screamsh.balance() > 1e18
+
+    # testing oBMX
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    obmx.approve(router, 2**256 - 1, {"from": screamsh})
+
+    # figure out how much weth we need for our oBMX balance
+    # calculate wBLT needed for our oBMX
+    to_exercise = 1e17
+    discount = 35
+    output = obmx.getPaymentTokenAmountForExerciseLp(
+        to_exercise, discount, {"from": screamsh}
+    )
+    w_blt_needed = output[1]
+
+    # calculate our WETH needed for wBLT
+    weth_needed = router.quoteMintAmountBLT(weth, w_blt_needed, {"from": screamsh})
+    lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
+    assert lp.balanceOf(screamsh) == 0
+    before_obmx = obmx.balanceOf(screamsh)
+    before_eth = screamsh.balance()
+
+    router.exerciseLpWithUnderlyingETH(
+        weth_needed,
+        to_exercise,
+        discount,
+        2**256 - 1,
+        {"from": screamsh, "value": weth_needed},
+    )
+    assert bmx.balanceOf(router) == 0
+    assert weth.balanceOf(router) == 0
+    assert usdc.balanceOf(router) == 0
+    assert w_blt.balanceOf(router) == 0
+    assert lp.balanceOf(router) == 0
+    assert gauge.balanceOf(screamsh) > 0
+    assert lp.balanceOf(screamsh) == 0
+    assert before_eth > screamsh.balance()
+    assert obmx.balanceOf(screamsh) < before_obmx
