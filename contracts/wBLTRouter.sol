@@ -73,6 +73,11 @@ contract wBLTRouter is Ownable2Step {
 
     /* ========== NEW/MODIFIED FUNCTIONS ========== */
 
+    /**
+     * @notice
+     *  Checks for current tokens in BLT, approves them, and updates our stored array.
+     * @dev This is may only be called by owner.
+     */
     function updateAllowances() public onlyOwner {
         // first, set all of our allowances to zero
         for (uint i = 0; i < bltTokens.length; ++i) {
@@ -100,7 +105,6 @@ contract wBLTRouter is Ownable2Step {
      * @param routes Array of structs that we use for our swap path.
      * @return amounts Amount of each token in the swap path.
      */
-    //
     function getAmountsOut(
         uint amountIn,
         route[] memory routes
@@ -680,6 +684,13 @@ contract wBLTRouter is Ownable2Step {
         }
     }
 
+    /**
+     * @notice
+     *  Check how much wBLT we get from a given amount of underlying.
+     * @param _token The token to deposit to wBLT.
+     * @param _amount The amount of the token to deposit.
+     * @return wrappedBLTMintAmount Amount of wBLT received.
+     */
     function getMintAmountWrappedBLT(
         address _token,
         uint256 _amount
@@ -719,6 +730,13 @@ contract wBLTRouter is Ownable2Step {
             : (usdgMintAmount * bltSupply) / aumInUsdg;
     }
 
+    /**
+     * @notice
+     *  Check how much underlying we get from redeeming a given amount of wBLT.
+     * @param _tokenOut The token to withdraw from wBLT.
+     * @param _bltAmount The amount of wBLT to burn.
+     * @return underlyingReceived Amount of underlying token received.
+     */
     function getRedeemAmountWrappedBLT(
         address _tokenOut,
         uint256 _bltAmount
@@ -750,7 +768,7 @@ contract wBLTRouter is Ownable2Step {
             morphexVault.BASIS_POINTS_DIVISOR();
     }
 
-    // check our array,
+    // check if a token is in BLT
     function isBLTToken(address _tokenToCheck) internal view returns (bool) {
         for (uint i = 0; i < bltTokens.length; ++i) {
             if (bltTokens[i] == _tokenToCheck) {
@@ -760,6 +778,7 @@ contract wBLTRouter is Ownable2Step {
         return false;
     }
 
+    // withdraw all of the wBLT we have to a given underlying token
     function _withdrawFromWrappedBLT(
         address _targetToken
     ) internal returns (uint256) {
@@ -780,6 +799,7 @@ contract wBLTRouter is Ownable2Step {
             );
     }
 
+    // deposit all of the underlying we have to wBLT
     function _depositToWrappedBLT(
         address _fromToken
     ) internal returns (uint256 tokens) {
@@ -798,6 +818,178 @@ contract wBLTRouter is Ownable2Step {
 
         // specify that router should get the vault tokens
         tokens = wBLT.deposit(newMlp, address(this));
+    }
+
+    /**
+     * @notice
+     *  Check how much underlying we need to mint a given amount of wBLT.
+     * @param _underlyingToken The token to deposit to wBLT.
+     * @param _bltAmountNeeded The amount of wBLT we need.
+     * @return Amount of underlying token needed.
+     */
+    function quoteMintAmountBLT(
+        address _underlyingToken,
+        uint256 _bltAmountNeeded
+    ) public view returns (uint256) {
+        require(_bltAmountNeeded > 0, "invalid _amount");
+
+        uint256 usdgNeeded = (_bltAmountNeeded * oracle.getLivePrice()) / 1e18;
+        uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
+        uint256 feeBasisPoints = vaultUtils.getBuyUsdgFeeBasisPoints(
+            _underlyingToken,
+            usdgNeeded
+        );
+        uint256 afterFeeAmount = (_bltAmountNeeded *
+            (morphexVault.BASIS_POINTS_DIVISOR() + feeBasisPoints)) /
+            morphexVault.BASIS_POINTS_DIVISOR();
+
+        uint256 startingTokenAmount = afterFeeAmount / tokenPrice;
+
+        startingTokenAmount = morphexVault.adjustForDecimals(
+            afterFeeAmount,
+            morphexVault.usdg(),
+            _underlyingToken
+        );
+
+        return startingTokenAmount;
+    }
+
+    /**
+     * @notice
+     *  Zap out into a wBLT LP with an underlying token.
+     * @param underlyingToken The token to zap in to wBLT.
+     * @param token The token paired with wBLT.
+     * @param amountUnderlyingDesired The amount of underlying we would like to deposit.
+     * @param amountTokenDesired The amount of token to pair with our wBLT.
+     * @return amountUnderlying Amount of underlying token to deposit.
+     * @return amountWrappedBLT Amount of wBLT we will deposit.
+     * @return amountToken Amount of other token to deposit.
+     * @return liquidity Amount of LP token received.
+     */
+    function quoteAddLiquidityUnderlying(
+        address underlyingToken,
+        address token,
+        uint amountUnderlyingDesired,
+        uint amountTokenDesired
+    )
+        external
+        view
+        returns (
+            uint amountUnderlying,
+            uint amountWrappedBLT,
+            uint amountToken,
+            uint liquidity
+        )
+    {
+        // create the pair if it doesn't exist yet
+        address _pair = IPairFactory(factory).getPair(
+            address(wBLT),
+            token,
+            false
+        );
+        (uint reserveA, uint reserveB) = (0, 0);
+        uint _totalSupply = 0;
+
+        // convert our amountUnderlyingDesired to amountWrappedBLTDesired
+        uint256 amountWrappedBLTDesired = getMintAmountWrappedBLT(
+            underlyingToken,
+            amountUnderlyingDesired
+        );
+
+        if (_pair != address(0)) {
+            _totalSupply = IERC20(_pair).totalSupply();
+            (reserveA, reserveB) = getReserves(address(wBLT), token, false);
+        }
+        if (reserveA == 0 && reserveB == 0) {
+            (amountWrappedBLT, amountToken) = (
+                amountWrappedBLTDesired,
+                amountTokenDesired
+            );
+            liquidity =
+                Math.sqrt(amountWrappedBLT * amountToken) -
+                MINIMUM_LIQUIDITY;
+        } else {
+            uint amountTokenOptimal = quoteLiquidity(
+                amountWrappedBLTDesired,
+                reserveA,
+                reserveB
+            );
+            if (amountTokenOptimal <= amountTokenDesired) {
+                (amountWrappedBLT, amountToken) = (
+                    amountWrappedBLTDesired,
+                    amountTokenOptimal
+                );
+                liquidity = Math.min(
+                    (amountWrappedBLT * _totalSupply) / reserveA,
+                    (amountToken * _totalSupply) / reserveB
+                );
+            } else {
+                uint amountWrappedBLTOptimal = quoteLiquidity(
+                    amountTokenDesired,
+                    reserveB,
+                    reserveA
+                );
+                (amountWrappedBLT, amountToken) = (
+                    amountWrappedBLTOptimal,
+                    amountTokenDesired
+                );
+                liquidity = Math.min(
+                    (amountWrappedBLT * _totalSupply) / reserveA,
+                    (amountToken * _totalSupply) / reserveB
+                );
+            }
+        }
+        // based on the amount of wBLT, calculate how much of our underlying token we need to zap in
+        amountUnderlying = quoteMintAmountBLT(
+            underlyingToken,
+            amountWrappedBLT
+        );
+    }
+
+    /**
+     * @notice
+     *  Zap out from a wBLT LP to an underlying token.
+     * @param underlyingToken The token to withdraw from wBLT.
+     * @param token The token paired with wBLT.
+     * @param liquidity The amount of wBLT LP to burn.
+     * @return amountUnderlying Amount of underlying token received.
+     * @return amountWrappedBLT Amount of wBLT token received before being converted to underlying.
+     * @return amountToken Amount of other token received.
+     */
+    function quoteRemoveLiquidityUnderlying(
+        address underlyingToken,
+        address token,
+        uint liquidity
+    )
+        external
+        returns (uint amountUnderlying, uint amountWrappedBLT, uint amountToken)
+    {
+        // create the pair if it doesn't exist yet
+        address _pair = IPairFactory(factory).getPair(
+            address(wBLT),
+            token,
+            false
+        );
+
+        if (_pair == address(0)) {
+            return (0, 0, 0);
+        }
+
+        (uint reserveA, uint reserveB) = getReserves(
+            address(wBLT),
+            token,
+            false
+        );
+        uint _totalSupply = IERC20(_pair).totalSupply();
+
+        amountWrappedBLT = (liquidity * reserveA) / _totalSupply; // using balances ensures pro-rata distribution
+        amountToken = (liquidity * reserveB) / _totalSupply; // using balances ensures pro-rata distribution
+
+        // simulate zapping out of wBLT to the selected underlying
+        amountUnderlying = getRedeemAmountWrappedBLT(
+            underlyingToken,
+            amountWrappedBLT
+        );
     }
 
     /* ========== UNMODIFIED FUNCTIONS ========== */
@@ -903,113 +1095,6 @@ contract wBLTRouter is Ownable2Step {
         amountB = (amountA * reserveB) / reserveA;
     }
 
-    function quoteMintAmountBLT(
-        address _underlyingToken,
-        uint256 _bltAmountNeeded
-    ) public view returns (uint256) {
-        require(_bltAmountNeeded > 0, "invalid _amount");
-
-        uint256 usdgNeeded = (_bltAmountNeeded * oracle.getLivePrice()) / 1e18;
-        uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
-        uint256 feeBasisPoints = vaultUtils.getBuyUsdgFeeBasisPoints(
-            _underlyingToken,
-            usdgNeeded
-        );
-        uint256 afterFeeAmount = (_bltAmountNeeded *
-            (morphexVault.BASIS_POINTS_DIVISOR() + feeBasisPoints)) /
-            morphexVault.BASIS_POINTS_DIVISOR();
-
-        uint256 startingTokenAmount = afterFeeAmount / tokenPrice;
-
-        startingTokenAmount = morphexVault.adjustForDecimals(
-            afterFeeAmount,
-            morphexVault.usdg(),
-            _underlyingToken
-        );
-
-        return startingTokenAmount;
-    }
-
-    function quoteAddLiquidityUnderlying(
-        address underlyingToken,
-        address token,
-        uint amountUnderlyingDesired,
-        uint amountTokenDesired
-    )
-        external
-        view
-        returns (
-            uint amountUnderlying,
-            uint amountWrappedBLT,
-            uint amountToken,
-            uint liquidity
-        )
-    {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(
-            address(wBLT),
-            token,
-            false
-        );
-        (uint reserveA, uint reserveB) = (0, 0);
-        uint _totalSupply = 0;
-
-        // convert our amountUnderlyingDesired to amountWrappedBLTDesired
-        uint256 amountWrappedBLTDesired = getMintAmountWrappedBLT(
-            underlyingToken,
-            amountUnderlyingDesired
-        );
-
-        if (_pair != address(0)) {
-            _totalSupply = IERC20(_pair).totalSupply();
-            (reserveA, reserveB) = getReserves(address(wBLT), token, false);
-        }
-        if (reserveA == 0 && reserveB == 0) {
-            (amountWrappedBLT, amountToken) = (
-                amountWrappedBLTDesired,
-                amountTokenDesired
-            );
-            liquidity =
-                Math.sqrt(amountWrappedBLT * amountToken) -
-                MINIMUM_LIQUIDITY;
-        } else {
-            uint amountTokenOptimal = quoteLiquidity(
-                amountWrappedBLTDesired,
-                reserveA,
-                reserveB
-            );
-            if (amountTokenOptimal <= amountTokenDesired) {
-                (amountWrappedBLT, amountToken) = (
-                    amountWrappedBLTDesired,
-                    amountTokenOptimal
-                );
-                liquidity = Math.min(
-                    (amountWrappedBLT * _totalSupply) / reserveA,
-                    (amountToken * _totalSupply) / reserveB
-                );
-            } else {
-                uint amountWrappedBLTOptimal = quoteLiquidity(
-                    amountTokenDesired,
-                    reserveB,
-                    reserveA
-                );
-                (amountWrappedBLT, amountToken) = (
-                    amountWrappedBLTOptimal,
-                    amountTokenDesired
-                );
-                liquidity = Math.min(
-                    (amountWrappedBLT * _totalSupply) / reserveA,
-                    (amountToken * _totalSupply) / reserveB
-                );
-            }
-        }
-        // based on the amount of wBLT, calculate how much of our underlying token we need to zap in
-        amountUnderlying = quoteMintAmountBLT(
-            underlyingToken,
-            amountWrappedBLT
-        );
-    }
-
     function quoteAddLiquidity(
         address tokenA,
         address tokenB,
@@ -1073,42 +1158,6 @@ contract wBLTRouter is Ownable2Step {
 
         amountA = (liquidity * reserveA) / _totalSupply; // using balances ensures pro-rata distribution
         amountB = (liquidity * reserveB) / _totalSupply; // using balances ensures pro-rata distribution
-    }
-
-    function quoteRemoveLiquidityUnderlying(
-        address underlyingToken,
-        address token,
-        uint liquidity
-    )
-        external
-        returns (uint amountUnderlying, uint amountWrappedBLT, uint amountToken)
-    {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(
-            address(wBLT),
-            token,
-            false
-        );
-
-        if (_pair == address(0)) {
-            return (0, 0, 0);
-        }
-
-        (uint reserveA, uint reserveB) = getReserves(
-            address(wBLT),
-            token,
-            false
-        );
-        uint _totalSupply = IERC20(_pair).totalSupply();
-
-        amountWrappedBLT = (liquidity * reserveA) / _totalSupply; // using balances ensures pro-rata distribution
-        amountToken = (liquidity * reserveB) / _totalSupply; // using balances ensures pro-rata distribution
-
-        // simulate zapping out of wBLT to the selected underlying
-        amountUnderlying = getRedeemAmountWrappedBLT(
-            underlyingToken,
-            amountWrappedBLT
-        );
     }
 
     function _addLiquidity(

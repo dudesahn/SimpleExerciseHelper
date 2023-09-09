@@ -590,6 +590,15 @@ interface IPairFactory {
     function tank() external view returns (address);
 }
 
+interface IBalancer {
+    function flashLoan(
+        address recipient,
+        address[] memory tokens,
+        uint256[] memory amounts,
+        bytes memory userData
+    ) external;
+}
+
 interface IRouter {
     function pairFor(
         address tokenA,
