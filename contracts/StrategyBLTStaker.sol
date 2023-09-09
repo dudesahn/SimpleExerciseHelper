@@ -48,10 +48,6 @@ contract StrategyBLTStaker is BaseStrategy {
     IMorphex public constant rewardRouter =
         IMorphex(0x49A97680938B4F1f73816d1B70C3Ab801FAd124B);
 
-    /// @notice Address of Morphex's vanilla token.
-    IMorphex public constant bmx =
-        IMorphex(0x548f93779fBC992010C07467cBaf329DD5F059B7);
-
     /// @notice BLT, the LP token for the basket of collateral assets on Morphex.
     /// @dev This is staked for our want token.
     IMorphex public constant mlp =
@@ -64,6 +60,13 @@ contract StrategyBLTStaker is BaseStrategy {
     /// @notice Address for WETH, our fee token.
     IERC20 public constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
+
+    /// @notice Address for oBMX, our option token (received as rewards).
+    IERC20 public constant oBMX =
+        IERC20(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
+
+    /// @notice Address for oBMX, our option token.
+    IHelper public constant dumpHelperBMX; // ***** ADD ADDRESS HERE ONCE DEPLOYED
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -85,6 +88,7 @@ contract StrategyBLTStaker is BaseStrategy {
         // want = sBLT
         address mlpManager = 0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5;
         weth.approve(address(mlpManager), type(uint256).max);
+        oBMX.approve(address(dumpHelperBMX), type(uint256).max);
 
         // set up our max delay
         maxReportDelay = 7 days;
@@ -109,9 +113,9 @@ contract StrategyBLTStaker is BaseStrategy {
         return fsMlp.balanceOf(address(this));
     }
 
-    /// @notice Balance of unstaked BMX sitting in our strategy.
-    function balanceOfBmx() public view returns (uint256) {
-        return bmx.balanceOf(address(this));
+    /// @notice Balance of oBMX sitting in our strategy.
+    function balanceOfoBmx() public view returns (uint256) {
+        return oBMX.balanceOf(address(this));
     }
 
     /// @notice Balance of WETH claimable from BLT fees.
@@ -130,6 +134,12 @@ contract StrategyBLTStaker is BaseStrategy {
     {
         // don't convert to ETH, leave as WETH
         _handleRewards();
+
+        // dump oBMX for WETH if we have enough
+        uint256 toDump = balanceOfoBmx();
+        if (toDump > 10e18) {
+            dumpHelperBMX.dumpForWeth();
+        }
 
         // serious loss should never happen, but if it does, let's record it accurately
         uint256 assets = estimatedTotalAssets();
@@ -255,7 +265,7 @@ contract StrategyBLTStaker is BaseStrategy {
     }
 
     function _handleRewards() internal onlyVaultManagers {
-        // claim BMX, claim WETH, convert WETH to ETH
+        // claim oBMX, claim WETH, convert WETH to ETH
         rewardRouter.handleRewards(true, true, false);
     }
 
