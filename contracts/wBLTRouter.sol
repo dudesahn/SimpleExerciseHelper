@@ -13,9 +13,11 @@ contract wBLTRouter is Ownable2Step {
     }
 
     /// @notice Factory address that deployed our Velodrome pool.
-    address public immutable factory;
+    address public constant factory =
+        0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951;
 
-    IWETH public immutable weth;
+    IWETH public constant weth =
+        IWETH(0x4200000000000000000000000000000000000006);
     uint internal constant MINIMUM_LIQUIDITY = 10 ** 3;
     bytes32 immutable pairCodeHash;
 
@@ -49,10 +51,8 @@ contract wBLTRouter is Ownable2Step {
     IBMX internal constant vaultUtils =
         IBMX(0xec31c83C5689C66cb77DdB5378852F3707022039);
 
-    constructor(address _factory, address _weth) {
-        factory = _factory;
-        pairCodeHash = IPairFactory(_factory).pairCodeHash();
-        weth = IWETH(_weth);
+    constructor() {
+        pairCodeHash = IPairFactory(factory).pairCodeHash();
 
         // do approvals for wBLT
         sBLT.approve(address(wBLT), type(uint256).max);

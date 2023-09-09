@@ -600,6 +600,12 @@ interface IBalancer {
 }
 
 interface IRouter {
+    struct route {
+        address from;
+        address to;
+        bool stable;
+    }
+
     function pairFor(
         address tokenA,
         address tokenB,
@@ -630,6 +636,14 @@ interface IRouter {
         address to,
         uint deadline
     ) external returns (uint, uint, uint);
+
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        route[] calldata routes,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
 }
 
 interface IWETH is IERC20 {
