@@ -15,7 +15,7 @@ def test_basic_swaps(
     # test views
     weth_to_mint = 1e15
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
-    print("Mint wBLT with 0.001 ETH", to_mint / 1e18)
+    print("🥸 Mint wBLT with 0.001 ETH", to_mint)
 
     weth_to_swap = 1e15
     weth_to_bmx = [
@@ -23,14 +23,16 @@ def test_basic_swaps(
         (w_blt.address, bmx.address, False),
     ]
     amounts = router.getAmountsOut(weth_to_swap, weth_to_bmx)
-    print("Get amounts out for 0.001 ETH:", amounts)
+    print("🥸 Get amounts out for 0.001 ETH:", amounts)
 
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     before = bmx.balanceOf(screamsh)
-    router.swapExactTokensForTokens(
+    swap = router.swapExactTokensForTokens(
         weth_to_swap, 0, weth_to_bmx, screamsh, 2**256 - 1, {"from": screamsh}
     )
+    print("💯 Actual amounts out", swap.return_value)
+
     assert bmx.balanceOf(screamsh) > before
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -293,14 +295,18 @@ def test_add_liq(
     assert bmx.balanceOf(screamsh) > before
 
     # calculate how much liquidity we need to add
-    quote = router.quoteAddLiquidityUnderlying(weth, bmx, 1e15, 1e18)
+    quote = router.quoteAddLiquidityUnderlying(
+        weth, bmx, 1e15, 1e18, {"from": screamsh}
+    )
     underlying_to_add = quote[0]
     wblt_expected = quote[1]
     token_to_add = quote[2]
 
+    print("🥸 Quote:", quote.dict())
+
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
-    router.addLiquidity(
+    real = router.addLiquidity(
         weth,
         underlying_to_add,
         bmx,
@@ -311,6 +317,7 @@ def test_add_liq(
         screamsh.address,
         {"from": screamsh},
     )
+    print("💯 Real:", real.return_value.dict())
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
@@ -448,9 +455,19 @@ def test_remove_liq(
     lp.approve(router, 2**256 - 1, {"from": screamsh})
     before_bmx = bmx.balanceOf(screamsh)
     before_weth = weth.balanceOf(screamsh)
-    router.removeLiquidity(
+
+    # predict what we would get
+    simulate = router.quoteRemoveLiquidityUnderlying(
+        weth, bmx, lp.balanceOf(screamsh), {"from": screamsh}
+    )
+
+    print("🥸 Estimated amounts:", simulate.return_value.dict())
+
+    real = router.removeLiquidity(
         weth, bmx, lp.balanceOf(screamsh), 0, 0, screamsh.address, {"from": screamsh}
     )
+    print("💯 Real amounts:", real.return_value.dict())
+
     assert before_bmx < bmx.balanceOf(screamsh)
     assert before_weth < weth.balanceOf(screamsh)
     assert bmx.balanceOf(router) == 0

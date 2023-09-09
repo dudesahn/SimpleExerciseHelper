@@ -188,9 +188,9 @@ contract wBLTRouter is Ownable2Step {
         }
 
         // wBLT -> WETH -> ETH
-        uint256 withdrawnAmount = _withdrawFromWrappedBLT(address(weth));
-        weth.withdraw(withdrawnAmount);
-        _safeTransferETH(to, withdrawnAmount);
+        uint256 amountUnderlying = _withdrawFromWrappedBLT(address(weth));
+        weth.withdraw(amountUnderlying);
+        _safeTransferETH(to, amountUnderlying);
     }
 
     /**
@@ -493,7 +493,7 @@ contract wBLTRouter is Ownable2Step {
      * @param to Address that will receive the LP token.
      * @return amountWrappedBLT Amount of wBLT actually received from the LP.
      * @return amountToken Amount of other token actually received from the LP.
-     * @return withdrawnAmount Amount of our underlying token received from the wBLT.
+     * @return amountUnderlying Amount of our underlying token received from the wBLT.
      */
     function removeLiquidity(
         address targetToken,
@@ -507,7 +507,7 @@ contract wBLTRouter is Ownable2Step {
         returns (
             uint amountWrappedBLT,
             uint amountToken,
-            uint256 withdrawnAmount
+            uint256 amountUnderlying
         )
     {
         address pair = pairFor(address(wBLT), token, false); // stable is dumb with wBLT
@@ -525,8 +525,8 @@ contract wBLTRouter is Ownable2Step {
 
         _safeTransfer(token, to, amountToken);
 
-        withdrawnAmount = _withdrawFromWrappedBLT(targetToken);
-        _safeTransfer(targetToken, to, withdrawnAmount);
+        amountUnderlying = _withdrawFromWrappedBLT(targetToken);
+        _safeTransfer(targetToken, to, amountUnderlying);
     }
 
     /**
@@ -539,7 +539,7 @@ contract wBLTRouter is Ownable2Step {
      * @param to Address that will receive the LP token.
      * @return amountWrappedBLT Amount of wBLT actually received from the LP.
      * @return amountToken Amount of other token actually received from the LP.
-     * @return withdrawnAmount Amount of ether received from the wBLT.
+     * @return amountUnderlying Amount of ether received from the wBLT.
      */
     function removeLiquidityETH(
         address token,
@@ -552,7 +552,7 @@ contract wBLTRouter is Ownable2Step {
         returns (
             uint amountWrappedBLT,
             uint amountToken,
-            uint256 withdrawnAmount
+            uint256 amountUnderlying
         )
     {
         address pair = pairFor(address(wBLT), token, false); // stable is dumb with wBLT
@@ -570,9 +570,9 @@ contract wBLTRouter is Ownable2Step {
 
         // send our ether and token to their final destination
         _safeTransfer(token, to, amountToken);
-        withdrawnAmount = _withdrawFromWrappedBLT(address(weth));
-        weth.withdraw(withdrawnAmount);
-        _safeTransferETH(to, withdrawnAmount);
+        amountUnderlying = _withdrawFromWrappedBLT(address(weth));
+        weth.withdraw(amountUnderlying);
+        _safeTransferETH(to, amountUnderlying);
     }
 
     /**
@@ -683,7 +683,7 @@ contract wBLTRouter is Ownable2Step {
     function getMintAmountWrappedBLT(
         address _token,
         uint256 _amount
-    ) public view returns (uint256) {
+    ) public view returns (uint256 wrappedBLTMintAmount) {
         require(_amount > 0, "invalid _amount");
 
         // calculate aum before buyUSDG
@@ -714,17 +714,15 @@ contract wBLTRouter is Ownable2Step {
             _token,
             morphexVault.usdg()
         );
-        uint256 bltMintAmount = aumInUsdg == 0
+        wrappedBLTMintAmount = aumInUsdg == 0
             ? usdgMintAmount
             : (usdgMintAmount * bltSupply) / aumInUsdg;
-
-        return bltMintAmount;
     }
 
     function getRedeemAmountWrappedBLT(
         address _tokenOut,
         uint256 _bltAmount
-    ) public view returns (uint256) {
+    ) public view returns (uint256 underlyingReceived) {
         require(_bltAmount > 0, "invalid _amount");
 
         // calculate aum before sellUSDG
@@ -746,11 +744,10 @@ contract wBLTRouter is Ownable2Step {
             _tokenOut,
             usdgAmount
         );
-        uint256 afterFeeAmount = (redeemAmount *
-            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
+        underlyingReceived =
+            (redeemAmount *
+                (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
             morphexVault.BASIS_POINTS_DIVISOR();
-
-        return afterFeeAmount;
     }
 
     // check our array,
