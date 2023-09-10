@@ -82,6 +82,10 @@ contract DumpHelperBMX is Ownable2Step {
         for (uint i; i < _bmxToWeth.length; ++i) {
             bmxToWeth.push(_bmxToWeth[i]);
         }
+
+        // approvals
+        weth.approve(address(oBMX), type(uint256).max);
+        bmx.approve(address(router), type(uint256).max);
     }
 
     /// @notice Dump our oBMX for WETH.
@@ -92,24 +96,28 @@ contract DumpHelperBMX is Ownable2Step {
 
         // transfer option token
         _safeTransferFrom(address(oBMX), msg.sender, address(this), _amount);
-        uint256 optionPrice = oBMX.getDiscountedPrice(_amount);
-        flashExercise(optionPrice);
+
+        // note that this will be in wBLT
+        uint256 wBLTNeeded = oBMX.getDiscountedPrice(_amount);
+        flashExercise(wBLTNeeded);
 
         // send profit back to user
         _safeTransfer(address(weth), msg.sender, weth.balanceOf(address(this)));
     }
 
-    function flashExercise(uint256 _optionPrice) internal {
+    function flashExercise(uint256 _paymentAmount) internal {
         flashEntered = true;
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(weth);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = _optionPrice;
+        address _weth = address(weth);
 
         // need top convert this amount of wBLT to WETH
-        _optionPrice = router.getAmountsOut(_optionPrice, wBltoWeth);
+        _paymentAmount = router.quoteMintAmountBLT(_weth, _paymentAmount);
 
-        bytes memory userData = abi.encode(_optionPrice);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = _paymentAmount;
+        address[] memory tokens = new address[](1);
+        tokens[0] = _weth;
+
+        bytes memory userData = abi.encode(_paymentAmount);
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
     }
 
@@ -119,17 +127,22 @@ contract DumpHelperBMX is Ownable2Step {
         uint256[] memory feeAmounts,
         bytes memory userData
     ) external {
-        if (msg.sender != address(balancerVault)) revert("Not balancer");
-        if (!flashEntered) revert("Flashloan not in progress");
+        address _balanceVault = address(balancerVault);
+        if (msg.sender != _balanceVault) {
+            revert("Not balancer");
+        }
+        if (!flashEntered) {
+            revert("Flashloan not in progress");
+        }
 
-        uint256 optionPrice = abi.decode(userData, (uint256));
-        uint256 optionBal = oBMX.balanceOf(address(this));
-        exerciseAndSwap(optionBal, optionPrice);
+        uint256 paymentAmount = abi.decode(userData, (uint256));
+        uint256 oBMXBalance = oBMX.balanceOf(address(this));
+        exerciseAndSwap(oBMXBalance, paymentAmount);
 
         uint256 payback = amounts[0] + feeAmounts[0];
-        _safeTransfer(address(weth), address(balancerVault), payback);
+        _safeTransfer(address(weth), _balanceVault, payback);
 
-        // check our profit and send back to user
+        // take fees on profit
         uint256 profit = weth.balanceOf(address(this));
         profit = takeFees(profit);
         flashEntered = false;
@@ -142,10 +155,10 @@ contract DumpHelperBMX is Ownable2Step {
     }
 
     function exerciseAndSwap(
-        uint256 _optionBal,
-        uint256 _optionPrice
+        uint256 _oBMXBalance,
+        uint256 _paymentAmount
     ) internal {
-        oBMX.exercise(_optionBal, _optionPrice, address(this));
+        oBMX.exercise(_oBMXBalance, _paymentAmount, address(this));
         uint256 bmxBalance = bmx.balanceOf(address(this));
 
         // use our wBLT router to easily go from BMX -> WETH
