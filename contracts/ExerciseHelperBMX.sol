@@ -3,7 +3,6 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface IoToken is IERC20 {
     function exercise(
@@ -33,6 +32,11 @@ interface IRouter {
         bool stable;
     }
 
+    function quoteMintAmountBLT(
+        address _underlyingToken,
+        uint256 _bltAmountNeeded
+    ) external view returns (uint256);
+
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -47,7 +51,12 @@ interface IRouter {
     ) external view returns (uint[] memory amounts);
 }
 
-contract DumpHelperBMX is Ownable2Step {
+/**
+ * @title Exercise Helper BMX
+ * @notice This contract easily converts oBMX to WETH using flash loans.
+ */
+
+contract ExerciseHelperBMX is Ownable2Step {
     IoToken public constant oBMX =
         IoToken(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
@@ -56,6 +65,9 @@ contract DumpHelperBMX is Ownable2Step {
 
     IERC20 public constant bmx =
         IERC20(0x548f93779fBC992010C07467cBaf329DD5F059B7);
+
+    IERC20 public constant wBLT =
+        IERC20(0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A);
 
     IBalancer public constant balancerVault =
         IBalancer(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
@@ -70,10 +82,12 @@ contract DumpHelperBMX is Ownable2Step {
 
     IRouter.route[] public wBltoWeth;
     IRouter.route[] public bmxToWeth;
+    IRouter.route[] public wethToWblt;
 
     constructor(
         IRouter.route[] memory _wBltoWeth,
-        IRouter.route[] memory _bmxToWeth
+        IRouter.route[] memory _bmxToWeth,
+        IRouter.route[] memory _wethToWblt
     ) {
         for (uint i; i < _wBltoWeth.length; ++i) {
             wBltoWeth.push(_wBltoWeth[i]);
@@ -83,9 +97,14 @@ contract DumpHelperBMX is Ownable2Step {
             bmxToWeth.push(_bmxToWeth[i]);
         }
 
+        for (uint i; i < _wethToWblt.length; ++i) {
+            wethToWblt.push(_wethToWblt[i]);
+        }
+
         // approvals
         weth.approve(address(oBMX), type(uint256).max);
         bmx.approve(address(router), type(uint256).max);
+        weth.approve(address(router), type(uint256).max);
     }
 
     /// @notice Dump our oBMX for WETH.
@@ -144,7 +163,7 @@ contract DumpHelperBMX is Ownable2Step {
 
         // take fees on profit
         uint256 profit = weth.balanceOf(address(this));
-        profit = takeFees(profit);
+        takeFees(profit);
         flashEntered = false;
     }
 
@@ -158,7 +177,20 @@ contract DumpHelperBMX is Ownable2Step {
         uint256 _oBMXBalance,
         uint256 _paymentAmount
     ) internal {
-        oBMX.exercise(_oBMXBalance, _paymentAmount, address(this));
+        // deposit our weth to wBLT
+        router.swapExactTokensForTokens(
+            _paymentAmount,
+            0,
+            wethToWblt,
+            address(this),
+            block.timestamp
+        );
+
+        oBMX.exercise(
+            _oBMXBalance,
+            wBLT.balanceOf(address(this)),
+            address(this)
+        );
         uint256 bmxBalance = bmx.balanceOf(address(this));
 
         // use our wBLT router to easily go from BMX -> WETH

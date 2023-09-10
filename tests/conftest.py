@@ -461,34 +461,92 @@ if chain_used == 8453:
         # router = Contract("0xBe05d55105d1fa9cDAe2508314d3df245dAa96ad")
         yield router
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def screamsh():
         yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def w_blt():
         yield Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def gauge():
         yield Contract("0x1F7B5E65c09dF12742255BB8Fe26958f4B52F9bb")
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def weth():
         yield Contract("0x4200000000000000000000000000000000000006")
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def bmx():
         yield Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def factory():
         yield "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def obmx():
         yield Contract("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
 
-    @pytest.fixture(scope="function")
+    @pytest.fixture(scope="session")
     def usdc():
         yield Contract("0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA")
+
+    @pytest.fixture(scope="session")
+    def bvm():
+        yield interface.IERC20("0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a")
+
+    @pytest.fixture(scope="session")
+    def obvm():
+        yield interface.IERC20("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
+
+    # route to swap from BVM to WETH
+    @pytest.fixture(scope="session")
+    def bvm_route(bvm, weth):
+        bvm_route = [
+            (bvm.address, weth.address, False),
+        ]
+        yield bvm_route
+
+    # route to swap from wBLT to WETH
+    @pytest.fixture(scope="session")
+    def wblt_route(bvm, weth):
+        wblt_route = [
+            (w_blt.address, weth.address, False),
+        ]
+        yield wblt_route
+
+    # route to swap from BVM to WETH
+    @pytest.fixture(scope="session")
+    def bvm_route(bvm, weth):
+        bvm_route = [
+            (bvm.address, weth.address, False),
+        ]
+        yield bvm_route
+
+    # route to swap from BVM to WETH
+    @pytest.fixture(scope="session")
+    def bvm_route(bvm, weth):
+        bvm_route = [
+            (bvm.address, weth.address, False),
+        ]
+        yield bvm_route
+
+    # our dump helper
+    @pytest.fixture(scope="function")
+    def bvm_exercise_helper(ExerciseHelperBVM, guardian, bvm_route):
+        bvm_exercise_helper = guardian.deploy(
+            ExerciseHelperBVM,
+            bvm_route,
+        )
+        yield bvm_exercise_helper
+
+    # our dump helper
+    @pytest.fixture(scope="function")
+    def bmx_exercise_helper(ExerciseHelperBMX, guardian, bvm_route):
+        bmx_exercise_helper = guardian.deploy(
+            ExerciseHelperBMX,
+            bvm_route,
+        )
+        yield bmx_exercise_helper

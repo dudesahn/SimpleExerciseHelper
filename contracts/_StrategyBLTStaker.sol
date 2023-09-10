@@ -37,7 +37,7 @@ interface IMorphex is IERC20 {
         uint256,
         uint256
     ) external returns (uint256);
-    
+
     function dumpForWeth(uint256) external;
 }
 
