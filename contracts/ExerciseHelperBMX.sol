@@ -57,31 +57,43 @@ interface IRouter {
  */
 
 contract ExerciseHelperBMX is Ownable2Step {
+    /// @notice Option token address
     IoToken public constant oBMX =
         IoToken(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
+    /// @notice WETH, payment token
     IERC20 public constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
 
+    /// @notice BMX, sell this for WETH
     IERC20 public constant bmx =
         IERC20(0x548f93779fBC992010C07467cBaf329DD5F059B7);
 
     IERC20 public constant wBLT =
         IERC20(0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A);
 
+    /// @notice Flashloan from Balancer vault
     IBalancer public constant balancerVault =
         IBalancer(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
 
+    /// @notice BMX router for swaps
     IRouter constant router =
-        IRouter(0x82E98c956BAe12961e89d5107df78D3298aa151a); // this is our special wBLT-BMX router, v8
+        IRouter(0x82E98c956BAe12961e89d5107df78D3298aa151a);
 
+    /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
-    address internal constant feeAddress =
-        0x87155E40F969FDAe7b73015dc2c1ce53003Ff70F;
+    /// @notice Where we send our 0.25% fee
+    address public constant feeAddress =
+        0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
-    IRouter.route[] public wBltoWeth;
+    /// @notice Route for selling BMX -> WETH
     IRouter.route[] public bmxToWeth;
+
+    /// @notice Route for selling wBLT -> WETH
+    IRouter.route[] public wBltoWeth;
+
+    /// @notice Route for selling WETH -> wBLT
     IRouter.route[] public wethToWblt;
 
     constructor(
@@ -89,6 +101,7 @@ contract ExerciseHelperBMX is Ownable2Step {
         IRouter.route[] memory _bmxToWeth,
         IRouter.route[] memory _wethToWblt
     ) {
+        // create our swap routes
         for (uint i; i < _wBltoWeth.length; ++i) {
             wBltoWeth.push(_wBltoWeth[i]);
         }
@@ -101,81 +114,107 @@ contract ExerciseHelperBMX is Ownable2Step {
             wethToWblt.push(_wethToWblt[i]);
         }
 
-        // approvals
+        // do necessary approvals
         weth.approve(address(oBMX), type(uint256).max);
         bmx.approve(address(router), type(uint256).max);
         weth.approve(address(router), type(uint256).max);
     }
 
-    /// @notice Dump our oBMX for WETH.
-    function dumpForWeth(uint256 _amount) external {
+    /**
+     * @notice Exercise our oBMX for WETH.
+     * @param _amount The amount of oBMX to exercise to WETH.
+     */
+    function exercise(uint256 _amount) external {
         if (_amount == 0) {
             revert("Can't exercise zero");
         }
 
-        // transfer option token
+        // transfer option token to this contract
         _safeTransferFrom(address(oBMX), msg.sender, address(this), _amount);
 
-        // note that this will be in wBLT
-        uint256 wBLTNeeded = oBMX.getDiscountedPrice(_amount);
-        flashExercise(wBLTNeeded);
+        // figure out how much wBLT we need for our oBMX amount
+        uint256 paymentTokenNeeded = oBMX.getDiscountedPrice(_amount);
 
-        // send profit back to user
+        // get our flash loan started
+        _borrowPaymentToken(paymentTokenNeeded);
+
+        // send remaining profit back to user
         _safeTransfer(address(weth), msg.sender, weth.balanceOf(address(this)));
     }
 
-    function flashExercise(uint256 _paymentAmount) internal {
+    /**
+     * @notice Flash loan our WETH from Balancer.
+     * @param _amountNeeded The amount of WETH needed.
+     */
+    function _borrowPaymentToken(uint256 _amountNeeded) internal {
+        // change our state
         flashEntered = true;
+        
         address _weth = address(weth);
 
         // need top convert this amount of wBLT to WETH
-        _paymentAmount = router.quoteMintAmountBLT(_weth, _paymentAmount);
+        _amountNeeded = router.quoteMintAmountBLT(_weth, _amountNeeded);
 
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = _paymentAmount;
+        // create our input args
         address[] memory tokens = new address[](1);
         tokens[0] = _weth;
 
-        bytes memory userData = abi.encode(_paymentAmount);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = _amountNeeded;
+
+        bytes memory userData = abi.encode(_amountNeeded);
+
+        // call the flash loan
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
     }
 
+    /**
+     * @notice Fallback function used during flash loans.
+     * @dev May only be called by balancer vault as part of
+     *  flash loan callback.
+     * @param _tokens The tokens we are swapping (in our case, only WETH).
+     * @param _amounts The amounts of said tokens.
+     * @param _feeAmounts The fee amounts for said tokens.
+     * @param _userData Payment token amount passed from our flash loan.
+     */
     function receiveFlashLoan(
-        address[] memory tokens,
-        uint256[] memory amounts,
-        uint256[] memory feeAmounts,
-        bytes memory userData
+        address[] memory _tokens,
+        uint256[] memory _amounts,
+        uint256[] memory _feeAmounts,
+        bytes memory _userData
     ) external {
-        address _balanceVault = address(balancerVault);
-        if (msg.sender != _balanceVault) {
-            revert("Not balancer");
+        // only balancer vault may call this, during a flash loan
+        if (msg.sender != address(balancerVault)) {
+            revert("Only balancer vault can call");
         }
         if (!flashEntered) {
             revert("Flashloan not in progress");
         }
 
-        uint256 paymentAmount = abi.decode(userData, (uint256));
-        uint256 oBMXBalance = oBMX.balanceOf(address(this));
-        exerciseAndSwap(oBMXBalance, paymentAmount);
+        // pull our option info from the userData
+        uint256 paymentTokenNeeded = abi.decode(_userData, (uint256));
 
-        uint256 payback = amounts[0] + feeAmounts[0];
-        _safeTransfer(address(weth), _balanceVault, payback);
+        // exercise our option with our new WETH, swap all BMX to WETH
+        uint256 optionTokenBalance = oBMX.balanceOf(address(this));
+        _exerciseAndSwap(optionTokenBalance, paymentTokenNeeded);
 
-        // take fees on profit
+        uint256 payback = _amounts[0] + _feeAmounts[0];
+        _safeTransfer(address(weth), address(balancerVault), payback);
+
+        // check our profit and take fees
         uint256 profit = weth.balanceOf(address(this));
-        takeFees(profit);
+        _takeFees(profit);
         flashEntered = false;
     }
 
-    function takeFees(uint256 _profitAmount) internal {
-        // send fees
-        uint256 toSend = (_profitAmount * 25) / 10_000;
-        _safeTransfer(address(weth), feeAddress, toSend);
-    }
-
-    function exerciseAndSwap(
-        uint256 _oBMXBalance,
-        uint256 _paymentAmount
+    /**
+     * @notice Exercise our oBMX, then swap BMX to WETH.
+     * @param _optionTokenAmount Amount of oBMX to exercise.
+     * @param _paymentTokenAmount Amount of WETH needed to pay for exercising.
+     */
+    function _exerciseAndSwap(
+        uint256 _optionTokenAmount,
+        uint256 _paymentTokenAmount
     ) internal {
         // deposit our weth to wBLT
         router.swapExactTokensForTokens(
@@ -191,17 +230,41 @@ contract ExerciseHelperBMX is Ownable2Step {
             wBLT.balanceOf(address(this)),
             address(this)
         );
-        uint256 bmxBalance = bmx.balanceOf(address(this));
+        uint256 bmxReceived = bmx.balanceOf(address(this));
 
-        // use our wBLT router to easily go from BMX -> WETH
+        // use our router to swap from BMX to WETH
         router.swapExactTokensForTokens(
-            bmxBalance,
+            bmxReceived,
             0,
             bmxToWeth,
             address(this),
             block.timestamp
         );
     }
+
+    /**
+     * @notice Apply fees to our profit amount.
+     * @param _profitAmount Amount to apply 0.25% fee to.
+     */
+    function _takeFees(uint256 _profitAmount) internal {
+        uint256 toSend = (_profitAmount * 25) / 10_000;
+        _safeTransfer(address(weth), feeAddress, toSend);
+    }
+
+    /**
+     * @notice Sweep out tokens accidentally sent here.
+     * @dev May only be called by owner.
+     * @param _tokenAddress Address of token to sweep.
+     * @param _tokenAmount Amount of tokens to sweep.
+     */
+    function recoverERC20(
+        address _tokenAddress,
+        uint256 _tokenAmount
+    ) external onlyOwner {
+        _safeTransfer(_tokenAddress, owner(), _tokenAmount);
+    }
+
+    /* ========== HELPER FUNCTIONS ========== */
 
     function _safeTransfer(address token, address to, uint256 value) internal {
         require(token.code.length > 0);
