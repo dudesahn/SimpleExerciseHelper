@@ -768,6 +768,44 @@ contract wBLTRouter is Ownable2Step {
             morphexVault.BASIS_POINTS_DIVISOR();
     }
 
+    /**
+     * @notice
+     *  Check how much underlying we need to mint a given amount of wBLT.
+     * @dev Since this uses minPrice, we likely overestimate underlying needed.
+     * @param _underlyingToken The token to deposit to wBLT.
+     * @param _bltAmountNeeded The amount of wBLT we need.
+     * @return Amount of underlying token needed.
+     */
+    function quoteMintAmountBLT(
+        address _underlyingToken,
+        uint256 _bltAmountNeeded
+    ) public view returns (uint256) {
+        require(_bltAmountNeeded > 0, "invalid _amount");
+
+        uint256 usdgNeeded = (_bltAmountNeeded * oracle.getLivePrice()) / 1e18;
+        uint256 feeBasisPoints = vaultUtils.getBuyUsdgFeeBasisPoints(
+            _underlyingToken,
+            usdgNeeded
+        );
+        uint256 afterFeeAmount = (_bltAmountNeeded *
+            (morphexVault.BASIS_POINTS_DIVISOR() + feeBasisPoints)) /
+            morphexVault.BASIS_POINTS_DIVISOR();
+
+        // price is returned in 1e30 from vault
+        uint256 tokenPrice = morphexVault.getMaxPrice(_underlyingToken);
+
+        uint256 startingTokenAmount = (afterFeeAmount *
+            morphexVault.PRICE_PRECISION()) / tokenPrice;
+
+        startingTokenAmount = morphexVault.adjustForDecimals(
+            startingTokenAmount,
+            morphexVault.usdg(),
+            _underlyingToken
+        );
+
+        return startingTokenAmount;
+    }
+
     // check if a token is in BLT
     function isBLTToken(address _tokenToCheck) internal view returns (bool) {
         for (uint i = 0; i < bltTokens.length; ++i) {
@@ -818,40 +856,6 @@ contract wBLTRouter is Ownable2Step {
 
         // specify that router should get the vault tokens
         tokens = wBLT.deposit(newMlp, address(this));
-    }
-
-    /**
-     * @notice
-     *  Check how much underlying we need to mint a given amount of wBLT.
-     * @param _underlyingToken The token to deposit to wBLT.
-     * @param _bltAmountNeeded The amount of wBLT we need.
-     * @return Amount of underlying token needed.
-     */
-    function quoteMintAmountBLT(
-        address _underlyingToken,
-        uint256 _bltAmountNeeded
-    ) public view returns (uint256) {
-        require(_bltAmountNeeded > 0, "invalid _amount");
-
-        uint256 usdgNeeded = (_bltAmountNeeded * oracle.getLivePrice()) / 1e18;
-        uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
-        uint256 feeBasisPoints = vaultUtils.getBuyUsdgFeeBasisPoints(
-            _underlyingToken,
-            usdgNeeded
-        );
-        uint256 afterFeeAmount = (_bltAmountNeeded *
-            (morphexVault.BASIS_POINTS_DIVISOR() + feeBasisPoints)) /
-            morphexVault.BASIS_POINTS_DIVISOR();
-
-        uint256 startingTokenAmount = afterFeeAmount / tokenPrice;
-
-        startingTokenAmount = morphexVault.adjustForDecimals(
-            afterFeeAmount,
-            morphexVault.usdg(),
-            _underlyingToken
-        );
-
-        return startingTokenAmount;
     }
 
     /**
@@ -962,6 +966,7 @@ contract wBLTRouter is Ownable2Step {
         uint liquidity
     )
         external
+        view
         returns (uint amountUnderlying, uint amountWrappedBLT, uint amountToken)
     {
         // create the pair if it doesn't exist yet

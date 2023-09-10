@@ -32,6 +32,18 @@ interface IRouter {
         bool stable;
     }
 
+    function getAmountOut(
+        uint amountIn,
+        address tokenIn,
+        address tokenOut,
+        bool stable
+    ) external view returns (uint amount);
+
+    function getAmountsOut(
+        uint amountIn,
+        route[] memory routes
+    ) external view returns (uint[] memory amounts);
+
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -39,11 +51,6 @@ interface IRouter {
         address to,
         uint deadline
     ) external returns (uint[] memory amounts);
-
-    function getAmountsOut(
-        uint amountIn,
-        route[] memory routes
-    ) external view returns (uint[] memory amounts);
 }
 
 /**
@@ -79,6 +86,9 @@ contract ExerciseHelperBVM is Ownable2Step {
     address public constant feeAddress =
         0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
+    // this means all of our fee values are in basis points
+    uint256 internal constant MAX_BPS = 10_000;
+
     /// @notice Route for selling BVM -> WETH
     IRouter.route[] public bvmToWeth;
 
@@ -96,10 +106,14 @@ contract ExerciseHelperBVM is Ownable2Step {
     /**
      * @notice Exercise our oBVM for WETH.
      * @param _amount The amount of oBVM to exercise to WETH.
+     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
-    function exercise(uint256 _amount) external {
+    function exercise(uint256 _amount, uint256 _slippageAllowed) external {
         if (_amount == 0) {
             revert("Can't exercise zero");
+        }
+        if (_slippageAllowed > MAX_BPS) {
+            revert("Slippage must be less than 10,000");
         }
 
         // transfer option token to this contract
@@ -109,7 +123,7 @@ contract ExerciseHelperBVM is Ownable2Step {
         uint256 paymentTokenNeeded = oBVM.getDiscountedPrice(_amount);
 
         // get our flash loan started
-        _borrowPaymentToken(paymentTokenNeeded);
+        _borrowPaymentToken(paymentTokenNeeded, _slippageAllowed);
 
         // send remaining profit back to user
         _safeTransfer(address(weth), msg.sender, weth.balanceOf(address(this)));
@@ -118,8 +132,12 @@ contract ExerciseHelperBVM is Ownable2Step {
     /**
      * @notice Flash loan our WETH from Balancer.
      * @param _amountNeeded The amount of WETH needed.
+     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
-    function _borrowPaymentToken(uint256 _amountNeeded) internal {
+    function _borrowPaymentToken(
+        uint256 _amountNeeded,
+        uint256 _slippageAllowed
+    ) internal {
         // change our state
         flashEntered = true;
 
@@ -130,7 +148,7 @@ contract ExerciseHelperBVM is Ownable2Step {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = _amountNeeded;
 
-        bytes memory userData = abi.encode(_amountNeeded);
+        bytes memory userData = abi.encode(_amountNeeded, _slippageAllowed);
 
         // call the flash loan
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
@@ -160,11 +178,18 @@ contract ExerciseHelperBVM is Ownable2Step {
         }
 
         // pull our option info from the userData
-        uint256 paymentTokenNeeded = abi.decode(_userData, (uint256));
+        (uint256 paymentTokenNeeded, uint256 slippageAllowed) = abi.decode(
+            _userData,
+            (uint256, uint256)
+        );
 
         // exercise our option with our new WETH, swap all BVM to WETH
         uint256 optionTokenBalance = oBVM.balanceOf(address(this));
-        _exerciseAndSwap(optionTokenBalance, paymentTokenNeeded);
+        _exerciseAndSwap(
+            optionTokenBalance,
+            paymentTokenNeeded,
+            slippageAllowed
+        );
 
         uint256 payback = _amounts[0] + _feeAmounts[0];
         _safeTransfer(address(weth), address(balancerVault), payback);
@@ -179,18 +204,31 @@ contract ExerciseHelperBVM is Ownable2Step {
      * @notice Exercise our oBVM, then swap BVM to WETH.
      * @param _optionTokenAmount Amount of oBVM to exercise.
      * @param _paymentTokenAmount Amount of WETH needed to pay for exercising.
+     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
     function _exerciseAndSwap(
         uint256 _optionTokenAmount,
-        uint256 _paymentTokenAmount
+        uint256 _paymentTokenAmount,
+        uint256 _slippageAllowed
     ) internal {
         oBVM.exercise(_optionTokenAmount, _paymentTokenAmount, address(this));
         uint256 bvmReceived = bvm.balanceOf(address(this));
 
+        // use this to minimize issues with slippage
+        uint256 wethPerBvm = router.getAmountOut(
+            1e18,
+            address(bvm),
+            address(weth),
+            false
+        );
+        uint256 minAmountOut = (bvmReceived *
+            wethPerBvm *
+            (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
+
         // use our router to swap from BVM to WETH
         router.swapExactTokensForTokens(
             bvmReceived,
-            0,
+            minAmountOut,
             bvmToWeth,
             address(this),
             block.timestamp
@@ -202,7 +240,7 @@ contract ExerciseHelperBVM is Ownable2Step {
      * @param _profitAmount Amount to apply 0.25% fee to.
      */
     function _takeFees(uint256 _profitAmount) internal {
-        uint256 toSend = (_profitAmount * 25) / 10_000;
+        uint256 toSend = (_profitAmount * 25) / MAX_BPS;
         _safeTransfer(address(weth), feeAddress, toSend);
     }
 

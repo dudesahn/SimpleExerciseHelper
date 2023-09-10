@@ -11,11 +11,59 @@ def test_basic_swaps(
     factory,
     usdc,
 ):
+    # clear out any balance
+    reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
+    glp_manager = Contract("0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5")
+    s_glp = Contract("0x64755939a80BC89E1D2d0f93A312908D348bC8dE")
+    weth_to_mint = 1e13
+    s_glp.approve(w_blt, 2**256 - 1, {"from": screamsh})
+    w_blt.deposit({"from": screamsh})
 
     # test views
-    weth_to_mint = 1e15
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
-    print("🥸 Mint wBLT with 0.001 ETH", to_mint)
+    print("\n🥸 Mint wBLT with 0.00001 ETH", "{:,.8f}".format(to_mint / 1e18))
+
+    # how much weth do we need for that same amount of WBLT?
+    weth_needed = router.quoteMintAmountBLT(weth, to_mint)
+    error = abs(weth_needed - weth_to_mint) / weth_to_mint * 100
+    print("Error:", "{:,.2f}%".format(error))
+
+    print(
+        "WETH needed for",
+        "{:,.8f}".format(to_mint / 1e18),
+        "wBLT",
+        "{:,.8f}".format(weth_needed / 1e18),
+    )
+
+    # swap for wBLT, compare it to minting directly on morphex
+    # mint via our router
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    weth_to_wblt = [
+        (weth.address, w_blt.address, False),
+    ]
+    weth_to_mint = 1e15
+    before = w_blt.balanceOf(screamsh)
+    router.swapExactTokensForTokens(
+        weth_to_mint, 0, weth_to_wblt, screamsh, 2**256 - 1, {"from": screamsh}
+    )
+    received_swap = w_blt.balanceOf(screamsh) - before
+    chain.undo()
+
+    # mint directly, should be exactly the same
+    weth.approve(glp_manager, 2**256 - 1, {"from": screamsh})
+    before_new = w_blt.balanceOf(screamsh)
+    reward_router.mintAndStakeGlp(weth.address, weth_to_mint, 0, 0, {"from": screamsh})
+    w_blt.deposit({"from": screamsh})
+    received_mint = w_blt.balanceOf(screamsh) - before_new
+    assert received_mint == received_swap
+
+    # print our two values
+    print(
+        "\nSwap for wBLT",
+        "{:,.8f}".format(received_swap / 1e18),
+        "\nMint directly",
+        "{:,.8f}".format(received_mint / 1e18),
+    )
 
     weth_to_swap = 1e15
     weth_to_bmx = [
@@ -85,7 +133,7 @@ def test_basic_swaps(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Swapped from wBLT back to WETH")
+    print("✅  Swapped from wBLT back to WETH\n")
 
 
 def test_eth_swaps(
@@ -127,7 +175,7 @@ def test_eth_swaps(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Swapped from ether to wBLT")
+    print("\n✅  Swapped from ether to wBLT")
 
     # swap wBLT to ETH
     wblt_to_swap = w_blt.balanceOf(screamsh)
@@ -184,7 +232,7 @@ def test_eth_swaps(
     assert w_blt.balanceOf(router) == 0
     assert bmx.balanceOf(screamsh) == 0
     assert screamsh.balance() > before_eth
-    print("✅  Swapped back from BMX to ether")
+    print("✅  Swapped back from BMX to ether\n")
 
 
 def test_long_route_swap(
@@ -223,7 +271,7 @@ def test_long_route_swap(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Lots of deposits to wBLT")
+    print("\n✅  Lots of deposits to wBLT")
 
     # swap for some BMX via WETH -> USDC
     weth.approve(router, 2**256 - 1, {"from": screamsh})
@@ -266,7 +314,7 @@ def test_long_route_swap(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Long swap BMX -> WETH -> USDC")
+    print("✅  Long swap BMX -> WETH -> USDC\n")
 
 
 def test_add_liq(
@@ -302,7 +350,7 @@ def test_add_liq(
     wblt_expected = quote[1]
     token_to_add = quote[2]
 
-    print("🥸 Quote:", quote.dict())
+    print("\n🥸 Quote:", quote.dict())
 
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
@@ -324,7 +372,7 @@ def test_add_liq(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert lp.balanceOf(screamsh) > 0
-    print("✅  Added liquidity for BMX-wBLT with WETH")
+    print("✅  Added liquidity for BMX-wBLT with WETH\n")
 
 
 def test_add_liq_ether(
@@ -381,7 +429,7 @@ def test_add_liq_ether(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert lp.balanceOf(screamsh) > 0
-    print("✅  Added liquidity for BMX-wBLT with Ether")
+    print("\n✅  Added liquidity for BMX-wBLT with Ether\n")
 
 
 def test_remove_liq(
@@ -420,7 +468,7 @@ def test_remove_liq(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Lots of deposits to wBLT")
+    print("\n✅  Lots of deposits to wBLT")
 
     # add liquidity
     # swap for some BMX
@@ -461,7 +509,7 @@ def test_remove_liq(
         weth, bmx, lp.balanceOf(screamsh), {"from": screamsh}
     )
 
-    print("🥸 Estimated amounts:", simulate.return_value.dict())
+    print("🥸 Estimated amounts:", simulate.dict())
 
     real = router.removeLiquidity(
         weth, bmx, lp.balanceOf(screamsh), 0, 0, screamsh.address, {"from": screamsh}
@@ -476,7 +524,7 @@ def test_remove_liq(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert lp.balanceOf(screamsh) == 0
-    print("✅  Removed liquidity for BMX-wBLT to WETH+BMX")
+    print("✅  Removed liquidity for BMX-wBLT to WETH+BMX\n")
 
 
 def test_remove_liq_ether(
@@ -515,7 +563,7 @@ def test_remove_liq_ether(
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
-    print("✅  Lots of deposits to wBLT")
+    print("\n✅  Lots of deposits to wBLT")
 
     # add liquidity
     # swap for some BMX
@@ -561,7 +609,7 @@ def test_remove_liq_ether(
     assert w_blt.balanceOf(router) == 0
     assert lp.balanceOf(router) == 0
     assert lp.balanceOf(screamsh) == 0
-    print("✅  Removed liquidity for BMX-wBLT to ether+BMX")
+    print("✅  Removed liquidity for BMX-wBLT to ether+BMX\n")
 
 
 def test_options(
@@ -587,14 +635,17 @@ def test_options(
     output = obmx.getPaymentTokenAmountForExerciseLp(
         to_exercise, discount, {"from": screamsh}
     )
-    w_blt_needed = output[1]
+    w_blt_needed = sum(output)
+    print("wBLT needed for LP exercising 1e17 oBMX:", w_blt_needed / 1e18)
 
     # calculate our WETH needed for wBLT
     weth_needed = router.quoteMintAmountBLT(weth, w_blt_needed, {"from": screamsh})
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
+    w_blt_before = w_blt.balanceOf(screamsh)
     before_obmx = obmx.balanceOf(screamsh)
     before_weth = weth.balanceOf(screamsh)
+    print("WETH needed:", weth_needed / 1e18)  # this should be around 0.00062499027
 
     router.exerciseLpWithUnderlying(
         weth.address,
@@ -613,6 +664,10 @@ def test_options(
     assert lp.balanceOf(screamsh) == 0
     assert weth.balanceOf(screamsh) < before_weth
     assert obmx.balanceOf(screamsh) < before_obmx
+    print(
+        "Extra wBLT sent back to user:",
+        (w_blt.balanceOf(screamsh) - w_blt_before) / 1e18,
+    )
 
 
 def test_options_eth(
@@ -642,12 +697,13 @@ def test_options_eth(
     output = obmx.getPaymentTokenAmountForExerciseLp(
         to_exercise, discount, {"from": screamsh}
     )
-    w_blt_needed = output[1]
+    w_blt_needed = sum(output)
 
     # calculate our WETH needed for wBLT
     weth_needed = router.quoteMintAmountBLT(weth, w_blt_needed, {"from": screamsh})
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
+    w_blt_before = w_blt.balanceOf(screamsh)
     before_obmx = obmx.balanceOf(screamsh)
     before_eth = screamsh.balance()
 
@@ -667,3 +723,7 @@ def test_options_eth(
     assert lp.balanceOf(screamsh) == 0
     assert before_eth > screamsh.balance()
     assert obmx.balanceOf(screamsh) < before_obmx
+    print(
+        "Extra wBLT sent back to user:",
+        (w_blt.balanceOf(screamsh) - w_blt_before) / 1e18,
+    )

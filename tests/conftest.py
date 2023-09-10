@@ -456,9 +456,11 @@ def destination_strategy():
 if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
-    def router(wBLTRouter, factory, weth, screamsh):
-        router = screamsh.deploy(wBLTRouter, factory, weth)
-        # router = Contract("0xBe05d55105d1fa9cDAe2508314d3df245dAa96ad")
+    def router(wBLTRouter, screamsh):
+        # router = screamsh.deploy(wBLTRouter)  # we have changes, will be v9 🥸
+        router = Contract(
+            "0x73f0F51e04B639A1D71f9fe8A1e38e6e88cEE6eA"
+        )  # v9, use for testing exercise helper
         yield router
 
     @pytest.fixture(scope="session")
@@ -511,27 +513,28 @@ if chain_used == 8453:
 
     # route to swap from wBLT to WETH
     @pytest.fixture(scope="session")
-    def wblt_route(bvm, weth):
+    def wblt_route(w_blt, weth):
         wblt_route = [
             (w_blt.address, weth.address, False),
         ]
         yield wblt_route
 
-    # route to swap from BVM to WETH
+    # route to swap from BMX to WETH via wBLT
     @pytest.fixture(scope="session")
-    def bvm_route(bvm, weth):
-        bvm_route = [
-            (bvm.address, weth.address, False),
+    def bmx_route(bmx, weth, w_blt):
+        bmx_route = [
+            (bmx.address, w_blt.address, False),
+            (w_blt.address, weth.address, False),
         ]
-        yield bvm_route
+        yield bmx_route
 
-    # route to swap from BVM to WETH
+    # route to swap from WETH to wBLT
     @pytest.fixture(scope="session")
-    def bvm_route(bvm, weth):
-        bvm_route = [
-            (bvm.address, weth.address, False),
+    def weth_route(w_blt, weth):
+        weth_route = [
+            (weth.address, w_blt.address, False),
         ]
-        yield bvm_route
+        yield weth_route
 
     # our dump helper
     @pytest.fixture(scope="function")
@@ -544,9 +547,13 @@ if chain_used == 8453:
 
     # our dump helper
     @pytest.fixture(scope="function")
-    def bmx_exercise_helper(ExerciseHelperBMX, guardian, bvm_route):
+    def bmx_exercise_helper(
+        ExerciseHelperBMX, guardian, router, wblt_route, bmx_route, weth_route
+    ):
+        #         bmx_exercise_helper = ExerciseHelperBMX.at(
+        #             "0x8e7F3383EAaC5770679B2DbFad5b5318c9399A0E"
+        #         )
         bmx_exercise_helper = guardian.deploy(
-            ExerciseHelperBMX,
-            bvm_route,
+            ExerciseHelperBMX, wblt_route, bmx_route, weth_route
         )
         yield bmx_exercise_helper
