@@ -37,6 +37,8 @@ interface IMorphex is IERC20 {
         uint256,
         uint256
     ) external returns (uint256);
+    
+    function dumpForWeth(uint256) external;
 }
 
 contract StrategyBLTStaker is BaseStrategy {
@@ -66,7 +68,7 @@ contract StrategyBLTStaker is BaseStrategy {
         IERC20(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
     /// @notice Address for oBMX, our option token.
-    IHelper public constant dumpHelperBMX; // ***** ADD ADDRESS HERE ONCE DEPLOYED
+    IMorphex public constant dumpHelperBMX; // ***** ADD ADDRESS HERE ONCE DEPLOYED ********************************************
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -138,7 +140,7 @@ contract StrategyBLTStaker is BaseStrategy {
         // dump oBMX for WETH if we have enough
         uint256 toDump = balanceOfoBmx();
         if (toDump > 10e18) {
-            dumpHelperBMX.dumpForWeth();
+            dumpHelperBMX.dumpForWeth(toDump);
         }
 
         // serious loss should never happen, but if it does, let's record it accurately
