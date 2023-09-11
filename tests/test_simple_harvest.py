@@ -18,6 +18,7 @@ def test_simple_harvest(
     target,
     use_yswaps,
     is_gmx,
+    RELATIVE_APPROX,
 ):
     ## deposit to the vault after approving
     starting_whale = token.balanceOf(whale)

@@ -154,7 +154,7 @@ def test_change_debt(
 
     ################# SET FALSE IF PROFIT EXPECTED. ADJUST AS NEEDED. #################
     # set this true if no profit on this test. should be rare but does happen.
-    no_profit = False
+    no_profit = True
 
     # debtOutstanding should be zero, credit available will be much lower than previously but greater than zero (profits)
     # however, if the strategy has no profit, or has inconsistent profit-taking, then we can have no credit here

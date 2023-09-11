@@ -38,7 +38,7 @@ interface IMorphex is IERC20 {
         uint256
     ) external returns (uint256);
 
-    function dumpForWeth(uint256) external;
+    function exercise(uint256 _amount, uint256 _slippageAllowed) external;
 }
 
 contract StrategyBLTStaker is BaseStrategy {
@@ -67,8 +67,12 @@ contract StrategyBLTStaker is BaseStrategy {
     IERC20 public constant oBMX =
         IERC20(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
-    /// @notice Address for oBMX, our option token.
-    IMorphex public constant dumpHelperBMX; // ***** ADD ADDRESS HERE ONCE DEPLOYED ********************************************
+    /// @notice Helper contract to sell oBMX for WETH.
+    IMorphex public constant exerciseHelperBMX =
+        IMorphex(0xE68Bd685e6925a7aa2Ac94e3891E30A8d466BEe2);
+
+    /// @notice Adjustable slippage param for exercising our oBMX. 10,000 = 100% slippage allowed.
+    uint256 public oBMXSlippage = 300;
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -90,7 +94,7 @@ contract StrategyBLTStaker is BaseStrategy {
         // want = sBLT
         address mlpManager = 0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5;
         weth.approve(address(mlpManager), type(uint256).max);
-        oBMX.approve(address(dumpHelperBMX), type(uint256).max);
+        oBMX.approve(address(exerciseHelperBMX), type(uint256).max);
 
         // set up our max delay
         maxReportDelay = 7 days;
@@ -137,10 +141,10 @@ contract StrategyBLTStaker is BaseStrategy {
         // don't convert to ETH, leave as WETH
         _handleRewards();
 
-        // dump oBMX for WETH if we have enough
-        uint256 toDump = balanceOfoBmx();
-        if (toDump > 10e18) {
-            dumpHelperBMX.dumpForWeth(toDump);
+        // exercise oBMX for WETH if we have enough
+        uint256 toExercise = balanceOfoBmx();
+        if (toExercise > 10e18) {
+            exerciseHelperBMX.exercise(toExercise, oBMXSlippage);
         }
 
         // serious loss should never happen, but if it does, let's record it accurately
@@ -370,5 +374,17 @@ contract StrategyBLTStaker is BaseStrategy {
     ) external onlyVaultManagers {
         harvestProfitMinInUsdc = _harvestProfitMinInUsdc;
         harvestProfitMaxInUsdc = _harvestProfitMaxInUsdc;
+    }
+
+    /**
+     * @notice
+     *  Update slippage allowed when exercising oBMX to WETH.
+     * @param _slippage Slippage allowed, in BPS (10,000 = 100%).
+     */
+    function setoBMXSlippage(uint256 _slippage) external onlyVaultManagers {
+        if (_slippage > 10_000) {
+            revert("Max of 10,000");
+        }
+        oBMXSlippage = _slippage;
     }
 }

@@ -31,9 +31,24 @@ def harvest_strategy(
         print("\nTurned off health check!\n")
 
     # we can use the tx for debugging if needed
+    strategy.setDoHealthCheck(False, {"from": gov})
     tx = strategy.harvest({"from": gov})
     profit = tx.events["Harvested"]["profit"]
     loss = tx.events["Harvested"]["loss"]
+    assert loss == 0
+
+    # here we send in a small amount of WETH from a whale to simulate profits from fees
+    if vault.strategies(strategy)["debtRatio"] > 0:
+        weth_whale = accounts.at(
+            "0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True
+        )
+        weth = interface.IERC20("0x4200000000000000000000000000000000000006")
+        weth.transfer(strategy.address, 1e14, {"from": weth_whale})
+        obmx_whale = accounts.at(
+            "0x89955a99552F11487FFdc054a6875DF9446B2902", force=True
+        )
+        obmx = interface.IERC20("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
+        obmx.transfer(strategy.address, 1e15, {"from": obmx_whale})
 
     # our trade handler takes action, sending out rewards tokens and sending back in profit. for gmx, treat it the same here as yswaps.
     extra = 0
@@ -62,8 +77,8 @@ def trade_handler_action(
     chain.sleep(1)
     chain.mine(1)
     tx = strategy.mintAndStake({"from": gov})
-    glp_amount = tx.return_value
-    return glp_amount
+    #glp_amount = tx.return_value
+    return 0
 
 
 # do a check on our strategy and vault of choice

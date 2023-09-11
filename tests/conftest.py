@@ -10,7 +10,7 @@ def isolate(fn_isolation):
 
 
 # set this for if we want to use tenderly or not; mostly helpful because with brownie.reverts fails in tenderly forks.
-use_tenderly = False
+use_tenderly = True
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
 chain_used = 8453
@@ -70,8 +70,8 @@ def whale(amount, token):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
     whale = accounts.at(
-        "0x1f5c98965ab469f6197DE432A7f86A0d75d7C0A4", force=True
-    )  # 0x1f5c98965ab469f6197DE432A7f86A0d75d7C0A4, fsMLP, 308k
+        "0xB1dD2Fdb023cB54b7cc2a0f5D9e8d47a9F7723ce", force=True
+    )  # 0xB1dD2Fdb023cB54b7cc2a0f5D9e8d47a9F7723ce, fsBLP, 8
     if token.balanceOf(whale) < 2 * amount:
         raise ValueError(
             "Our whale needs more funds. Find another whale or reduce your amount variable."
@@ -81,7 +81,7 @@ def whale(amount, token):
 
 @pytest.fixture(scope="session")
 def amount(token):
-    amount = 100_000 * 10 ** token.decimals()
+    amount = 3 * 10 ** token.decimals()
     yield amount
 
 
@@ -89,8 +89,8 @@ def amount(token):
 def profit_whale(profit_amount, token):
     # ideally not the same whale as the main whale, or else they will lose money
     profit_whale = accounts.at(
-        "0xF48883940b4056801de30F12b934DCeA90133ee6", force=True
-    )  # 0xF48883940b4056801de30F12b934DCeA90133ee6, fsMLP, 200k tokens
+        "0x89955a99552F11487FFdc054a6875DF9446B2902", force=True
+    )  # 0x89955a99552F11487FFdc054a6875DF9446B2902, fsMLP, 1 tokens
     if token.balanceOf(profit_whale) < 5 * profit_amount:
         raise ValueError(
             "Our profit whale needs more funds. Find another whale or reduce your profit_amount variable."
@@ -100,7 +100,7 @@ def profit_whale(profit_amount, token):
 
 @pytest.fixture(scope="session")
 def profit_amount(token):
-    profit_amount = 500 * 10 ** token.decimals()
+    profit_amount = 0.2 * 10 ** token.decimals()
     yield profit_amount
 
 
@@ -121,21 +121,21 @@ def old_vault():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="session")
 def strategy_name():
-    strategy_name = "StrategyMLPStaker"
+    strategy_name = "StrategyBLTStaker"
     yield strategy_name
 
 
 # this is the name of our strategy in the .sol file
 @pytest.fixture(scope="session")
-def contract_name(StrategyMLPStaker):
-    contract_name = StrategyMLPStaker
+def contract_name(StrategyBLTStaker):
+    contract_name = StrategyBLTStaker
     yield contract_name
 
 
 # if our strategy is using ySwaps, then we will treat it differently and will have async profit/rewards claiming
 @pytest.fixture(scope="session")
 def use_yswaps():
-    use_yswaps = False
+    use_yswaps = True
     yield use_yswaps
 
 
@@ -418,9 +418,6 @@ def strategy(
     base_fee_oracle.setManualBaseFeeBool(True, {"from": base_fee_oracle.governance()})
     assert strategy.isBaseFeeAcceptable() == True
 
-    # do this to test our different vesting values
-    strategy.setPercentToVest(to_vest, {"from": gov})
-
     yield strategy
 
 
@@ -433,6 +430,12 @@ def strategy(
 @pytest.fixture(scope="session")
 def is_gmx():
     yield True
+
+
+# use this to set what percentage of our esMPX we vest (0, 10%, 50%)
+@pytest.fixture(scope="session")
+def to_vest():
+    yield 0
 
 
 # our wMLP oracle
