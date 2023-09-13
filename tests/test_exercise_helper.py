@@ -15,13 +15,26 @@ def test_bvm_exercise_helper(
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
-    slippage = 30  # in BPS
+    profit_slippage = 400  # in BPS
+    swap_slippage = 30
 
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
     fee_before = weth.balanceOf(bvm_exercise_helper.feeAddress())
 
     # use our preset slippage and amount
-    bvm_exercise_helper.exercise(to_exercise, slippage, {"from": obvm_whale})
+
+    result = bvm_exercise_helper.quoteExerciseProfit(
+        to_exercise, profit_slippage, {"from": obvm_whale}
+    )
+    print("Result", result.dict())
+    real_slippage = (
+        result["expectedProfitDeleteBeforeProd"] - result["realProfit"]
+    ) / result["expectedProfitDeleteBeforeProd"]
+    print("Slippage:", "{:,.2f}%".format(real_slippage * 100))
+
+    bvm_exercise_helper.exercise(
+        to_exercise, profit_slippage, swap_slippage, {"from": obvm_whale}
+    )
 
     assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
     assert weth_before < weth.balanceOf(obvm_whale)
@@ -63,13 +76,27 @@ def test_bmx_exercise_helper(obmx, bmx, bmx_exercise_helper, weth, router, usdc,
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 3e18
-    slippage = 6000  # in BPS
+    profit_slippage = 400  # in BPS
+    swap_slippage = 30
 
     obmx.approve(bmx_exercise_helper, 2**256 - 1, {"from": obmx_whale})
     fee_before = weth.balanceOf(bmx_exercise_helper.feeAddress())
 
     # use our preset slippage and amount
-    bmx_exercise_helper.exercise(to_exercise, slippage, {"from": obmx_whale})
+
+    result = bmx_exercise_helper.quoteExerciseProfit(
+        to_exercise, profit_slippage, {"from": obmx_whale}
+    )
+    print("Result", result.dict())
+    real_slippage = (
+        result["expectedProfitDeleteBeforeProd"] - result["realProfit"]
+    ) / result["expectedProfitDeleteBeforeProd"]
+    print("Slippage:", "{:,.2f}%".format(real_slippage * 100))
+
+    # use our preset slippage and amount
+    bmx_exercise_helper.exercise(
+        to_exercise, profit_slippage, swap_slippage, {"from": obmx_whale}
+    )
 
     assert obmx.balanceOf(obmx_whale) == obmx_before - to_exercise
     assert weth_before < weth.balanceOf(obmx_whale)

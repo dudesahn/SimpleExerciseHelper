@@ -17,7 +17,8 @@ def test_basic_swaps(
     s_glp = Contract("0x64755939a80BC89E1D2d0f93A312908D348bC8dE")
     weth_to_mint = 1e13
     s_glp.approve(w_blt, 2**256 - 1, {"from": screamsh})
-    w_blt.deposit({"from": screamsh})
+    if s_glp.balanceOf(screamsh) > 0:
+        w_blt.deposit({"from": screamsh})
 
     # test views
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
@@ -151,7 +152,7 @@ def test_eth_swaps(
     assert screamsh.balance() > 1e18
 
     # basic data
-    weth_to_swap = 1e18
+    weth_to_swap = 1e17
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -167,7 +168,7 @@ def test_eth_swaps(
         weth_to_wblt,
         screamsh,
         2**256 - 1,
-        {"from": screamsh, "value": 1e18},
+        {"from": screamsh, "value": 1e17},
     )
     assert screamsh.balance() < before_eth
     assert w_blt.balanceOf(screamsh) > before
@@ -203,7 +204,7 @@ def test_eth_swaps(
         weth_to_bmx,
         screamsh,
         2**256 - 1,
-        {"from": screamsh, "value": 1e18},
+        {"from": screamsh, "value": 1e17},
     )
     assert bmx.balanceOf(screamsh) > before
     assert bmx.balanceOf(router) == 0
@@ -474,7 +475,7 @@ def test_remove_liq(
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
-    weth_to_swap = 1e18
+    weth_to_swap = 1e17
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -487,7 +488,15 @@ def test_remove_liq(
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
     router.addLiquidity(
-        weth, 1e18, bmx, 50e18, 50e18, 0, 0, screamsh.address, {"from": screamsh}
+        weth,
+        weth_to_swap,
+        bmx,
+        50e18,
+        50e18,
+        0,
+        0,
+        screamsh.address,
+        {"from": screamsh},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
@@ -569,7 +578,7 @@ def test_remove_liq_ether(
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
-    weth_to_swap = 1e18
+    weth_to_swap = 1e17
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -582,7 +591,15 @@ def test_remove_liq_ether(
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
     router.addLiquidity(
-        weth, 1e18, bmx, 50e18, 50e18, 0, 0, screamsh.address, {"from": screamsh}
+        weth,
+        weth_to_swap,
+        bmx,
+        50e18,
+        50e18,
+        0,
+        0,
+        screamsh.address,
+        {"from": screamsh},
     )
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0

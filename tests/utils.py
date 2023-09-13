@@ -77,7 +77,7 @@ def trade_handler_action(
     chain.sleep(1)
     chain.mine(1)
     tx = strategy.mintAndStake({"from": gov})
-    #glp_amount = tx.return_value
+    # glp_amount = tx.return_value
     return 0
 
 

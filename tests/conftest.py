@@ -460,10 +460,10 @@ if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
-        # router = screamsh.deploy(wBLTRouter)  # we have changes, will be v9 🥸
-        router = Contract(
-            "0x73f0F51e04B639A1D71f9fe8A1e38e6e88cEE6eA"
-        )  # v9, use for testing exercise helper
+        router = screamsh.deploy(wBLTRouter)  # we have changes, will be v10 🥸
+        #         router = Contract(
+        #             "0x73f0F51e04B639A1D71f9fe8A1e38e6e88cEE6eA"
+        #         )  # v9, use for testing exercise helper
         yield router
 
     @pytest.fixture(scope="session")
