@@ -787,15 +787,18 @@ contract wBLTRouter is Ownable2Step {
             _underlyingToken,
             usdgNeeded
         );
-        uint256 afterFeeAmount = (_bltAmountNeeded *
+        uint256 afterFeeAmount = (usdgNeeded *
             (morphexVault.BASIS_POINTS_DIVISOR() + feeBasisPoints)) /
             morphexVault.BASIS_POINTS_DIVISOR();
 
         // price is returned in 1e30 from vault
         uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
 
-        uint256 startingTokenAmount = (afterFeeAmount *
-            morphexVault.PRICE_PRECISION()) / tokenPrice;
+        // add in an extra 0.01% to cover rounding errors
+        // likely to have extra dust left but we will definitely have enough
+        uint256 startingTokenAmount = (10001 *
+            (afterFeeAmount * morphexVault.PRICE_PRECISION())) /
+            (10000 * tokenPrice);
 
         startingTokenAmount = morphexVault.adjustForDecimals(
             startingTokenAmount,

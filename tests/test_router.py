@@ -22,18 +22,18 @@ def test_basic_swaps(
 
     # test views
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
-    print("\n🥸 Mint wBLT with 0.00001 ETH", "{:,.8f}".format(to_mint / 1e18))
+    print("\n🥸 Mint wBLT with 0.00001 ETH", "{:,.18f}".format(to_mint / 1e18))
 
     # how much weth do we need for that same amount of WBLT?
     weth_needed = router.quoteMintAmountBLT(weth, to_mint)
     error = abs(weth_needed - weth_to_mint) / weth_to_mint * 100
-    print("Error:", "{:,.2f}%".format(error))
+    print("Error:", "{:,.10f}%".format(error))
 
     print(
         "WETH needed for",
-        "{:,.8f}".format(to_mint / 1e18),
+        "{:,.18f}".format(to_mint / 1e18),
         "wBLT",
-        "{:,.8f}".format(weth_needed / 1e18),
+        "{:,.18f}".format(weth_needed / 1e18),
     )
 
     # swap for wBLT, compare it to minting directly on morphex
