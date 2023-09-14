@@ -45,10 +45,10 @@ def harvest_strategy(
         weth = interface.IERC20("0x4200000000000000000000000000000000000006")
         weth.transfer(strategy.address, 1e14, {"from": weth_whale})
         obmx_whale = accounts.at(
-            "0x89955a99552F11487FFdc054a6875DF9446B2902", force=True
+            "0xeA00CFb98716B70760A6E8A5Ffdb8781Ef63fa5A", force=True
         )
         obmx = interface.IERC20("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
-        obmx.transfer(strategy.address, 1e15, {"from": obmx_whale})
+        obmx.transfer(strategy.address, 10e18, {"from": obmx_whale})
 
     # our trade handler takes action, sending out rewards tokens and sending back in profit. for gmx, treat it the same here as yswaps.
     extra = 0
@@ -76,8 +76,12 @@ def trade_handler_action(
     # since this behaves very similar to ySwaps, we have use_yswaps = True
     chain.sleep(1)
     chain.mine(1)
-    tx = strategy.mintAndStake({"from": gov})
-    # glp_amount = tx.return_value
+    strategy.mintAndStake({"from": gov})
+    chain.sleep(1)
+    chain.mine(1)
+    strategy.exercise(5000, 5000, {"from": gov})
+    chain.sleep(1)
+    chain.mine(1)
     return 0
 
 

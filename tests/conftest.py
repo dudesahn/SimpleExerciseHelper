@@ -70,8 +70,8 @@ def whale(amount, token):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
     whale = accounts.at(
-        "0xB1dD2Fdb023cB54b7cc2a0f5D9e8d47a9F7723ce", force=True
-    )  # 0xB1dD2Fdb023cB54b7cc2a0f5D9e8d47a9F7723ce, fsBLP, 8
+        "0x89955a99552F11487FFdc054a6875DF9446B2902", force=True
+    )  # 0x89955a99552F11487FFdc054a6875DF9446B2902, fsBLP, 8
     if token.balanceOf(whale) < 2 * amount:
         raise ValueError(
             "Our whale needs more funds. Find another whale or reduce your amount variable."
@@ -81,7 +81,7 @@ def whale(amount, token):
 
 @pytest.fixture(scope="session")
 def amount(token):
-    amount = 3 * 10 ** token.decimals()
+    amount = 5 * 10 ** token.decimals()
     yield amount
 
 
@@ -100,14 +100,14 @@ def profit_whale(profit_amount, token):
 
 @pytest.fixture(scope="session")
 def profit_amount(token):
-    profit_amount = 0.2 * 10 ** token.decimals()
+    profit_amount = 5 * 10 ** token.decimals()
     yield profit_amount
 
 
 # set address if already deployed, use ZERO_ADDRESS if not
 @pytest.fixture(scope="session")
 def vault_address():
-    vault_address = ZERO_ADDRESS
+    vault_address = "0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A"
     yield vault_address
 
 
@@ -167,10 +167,10 @@ def is_slippery(no_profit):
 # generally 1 day, but can be less if dealing with smaller windows (oracles) or longer if we need to trigger weekly earnings.
 @pytest.fixture(scope="session")
 def sleep_time():
-    hour = 3600
+    hour = 1
 
     # change this one right here
-    hours_to_sleep = 24
+    hours_to_sleep = 1
 
     sleep_time = hour * hours_to_sleep
     yield sleep_time
@@ -294,8 +294,8 @@ elif chain_used == 250:  # fantom
 elif chain_used == 8453:  # base
 
     @pytest.fixture(scope="session")
-    def gov():  # BMX multisig
-        yield accounts.at("0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec", force=True)
+    def gov():  # BMX multisig 0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec
+        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
     @pytest.fixture(scope="session")
     def health_check():
@@ -386,6 +386,8 @@ def strategy(
     vault_address,
     trade_factory,
     to_vest,
+    obmx,
+    weth,
 ):
     # will need to update this based on the strategy's constructor ******
     strategy = gov.deploy(contract_name, vault)
@@ -397,18 +399,15 @@ def strategy(
     vault.setManagementFee(0, {"from": gov})
 
     # if we have other strategies, set them to zero DR and remove them from the queue
-    if vault_address != ZERO_ADDRESS:
-        for i in range(0, 20):
-            strat_address = vault.withdrawalQueue(i)
-            if ZERO_ADDRESS == strat_address:
-                break
-
-            if vault.strategies(strat_address)["debtRatio"] > 0:
-                vault.updateStrategyDebtRatio(strat_address, 0, {"from": gov})
-                interface.ICurveStrategy045(strat_address).harvest({"from": gov})
-                vault.removeStrategyFromQueue(strat_address, {"from": gov})
+    strat_address = vault.withdrawalQueue(0)
+    old_strategy = Contract.from_explorer(strat_address)
+    old_strategy.setEmergencyExit({"from": gov})
+    old_strategy.harvest({"from": gov})
+    vault.removeStrategyFromQueue(strat_address, {"from": gov})
 
     vault.addStrategy(strategy, 10_000, 0, 2**256 - 1, 0, {"from": gov})
+    old_strategy.handleRewards({"from": gov})
+    assert obmx.balanceOf(old_strategy) > 0
 
     # turn our oracle into testing mode by setting the provider to 0x00, then forcing true
     strategy.setBaseFeeOracle(base_fee_oracle, {"from": management})
@@ -460,10 +459,10 @@ if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
-        router = screamsh.deploy(wBLTRouter)  # we have changes, will be v10 🥸
-        #         router = Contract(
-        #             "0x73f0F51e04B639A1D71f9fe8A1e38e6e88cEE6eA"
-        #         )  # v9, use for testing exercise helper
+        router = screamsh.deploy(wBLTRouter)
+        #         router = Contract.from_explorer(
+        #             "0x68dc9978d159300767e541e0DDde1E1B2Ec79680"
+        #         )  # v11
         yield router
 
     @pytest.fixture(scope="session")
@@ -554,7 +553,7 @@ if chain_used == 8453:
         ExerciseHelperBMX, guardian, router, wblt_route, bmx_route, weth_route
     ):
         #         bmx_exercise_helper = ExerciseHelperBMX.at(
-        #             "0x8e7F3383EAaC5770679B2DbFad5b5318c9399A0E"
+        #             "0x99413e382629be72F89D80CCEEF40Fe80CF3934f"
         #         )
         bmx_exercise_helper = guardian.deploy(
             ExerciseHelperBMX, wblt_route, bmx_route, weth_route

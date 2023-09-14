@@ -15,21 +15,18 @@ def test_bvm_exercise_helper(
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
-    profit_slippage = 400  # in BPS
+    profit_slippage = 800  # in BPS
     swap_slippage = 30
 
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf(bvm_exercise_helper.feeAddress())
+    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
 
     # use our preset slippage and amount
-
-    result = bvm_exercise_helper.quoteExerciseProfit(
-        to_exercise, profit_slippage, {"from": obvm_whale}
-    )
+    result = bvm_exercise_helper.quoteExerciseProfit(to_exercise, 0)
     print("Result", result.dict())
-    real_slippage = (
-        result["expectedProfitDeleteBeforeProd"] - result["realProfit"]
-    ) / result["expectedProfitDeleteBeforeProd"]
+    real_slippage = (result["expectedProfit"] - result["realProfit"]) / result[
+        "expectedProfit"
+    ]
     print("Slippage:", "{:,.2f}%".format(real_slippage * 100))
 
     bvm_exercise_helper.exercise(
@@ -39,7 +36,7 @@ def test_bvm_exercise_helper(
     assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
     assert weth_before < weth.balanceOf(obvm_whale)
     profit = weth.balanceOf(obvm_whale) - weth_before
-    fees = weth.balanceOf(bvm_exercise_helper.feeAddress()) - fee_before
+    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
 
     assert bvm.balanceOf(bvm_exercise_helper) == 0
     assert weth.balanceOf(bvm_exercise_helper) == 0
@@ -56,41 +53,25 @@ def test_bvm_exercise_helper(
 
 
 def test_bmx_exercise_helper(obmx, bmx, bmx_exercise_helper, weth, router, usdc, w_blt):
-    # whales deposit USDC to give us some flexibility, USDC-WETH pool on aerodrome
-    token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
-    usdc.approve(router, 2**256 - 1, {"from": token_whale})
-
-    usdc_to_wblt = [
-        (usdc.address, w_blt.address, False),
-    ]
-    usdc_to_swap = 10_000e6
-
-    router.swapExactTokensForTokens(
-        usdc_to_swap, 0, usdc_to_wblt, token_whale, 2**256 - 1, {"from": token_whale}
-    )
-
     # exercise a small amount
-    obmx_whale = accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+    obmx_whale = accounts.at("0xeA00CFb98716B70760A6E8A5Ffdb8781Ef63fa5A", force=True)
     obmx_before = obmx.balanceOf(obmx_whale)
     weth_before = weth.balanceOf(obmx_whale)
 
     # control how much we exercise. larger size, more slippage
-    to_exercise = 3e18
+    to_exercise = 10e18
     profit_slippage = 400  # in BPS
     swap_slippage = 30
 
     obmx.approve(bmx_exercise_helper, 2**256 - 1, {"from": obmx_whale})
-    fee_before = weth.balanceOf(bmx_exercise_helper.feeAddress())
+    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
 
     # use our preset slippage and amount
-
-    result = bmx_exercise_helper.quoteExerciseProfit(
-        to_exercise, profit_slippage, {"from": obmx_whale}
-    )
+    result = bmx_exercise_helper.quoteExerciseProfit(to_exercise, 0)
     print("Result", result.dict())
-    real_slippage = (
-        result["expectedProfitDeleteBeforeProd"] - result["realProfit"]
-    ) / result["expectedProfitDeleteBeforeProd"]
+    real_slippage = (result["expectedProfit"] - result["realProfit"]) / result[
+        "expectedProfit"
+    ]
     print("Slippage:", "{:,.2f}%".format(real_slippage * 100))
 
     # use our preset slippage and amount
@@ -101,7 +82,7 @@ def test_bmx_exercise_helper(obmx, bmx, bmx_exercise_helper, weth, router, usdc,
     assert obmx.balanceOf(obmx_whale) == obmx_before - to_exercise
     assert weth_before < weth.balanceOf(obmx_whale)
     profit = weth.balanceOf(obmx_whale) - weth_before
-    fees = weth.balanceOf(bmx_exercise_helper.feeAddress()) - fee_before
+    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
 
     assert bmx.balanceOf(bmx_exercise_helper) == 0
     assert weth.balanceOf(bmx_exercise_helper) == 0

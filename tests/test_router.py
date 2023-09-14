@@ -15,14 +15,14 @@ def test_basic_swaps(
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
     glp_manager = Contract("0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5")
     s_glp = Contract("0x64755939a80BC89E1D2d0f93A312908D348bC8dE")
-    weth_to_mint = 1e13
+    weth_to_mint = 2e15
     s_glp.approve(w_blt, 2**256 - 1, {"from": screamsh})
     if s_glp.balanceOf(screamsh) > 0:
         w_blt.deposit({"from": screamsh})
 
     # test views
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
-    print("\n🥸 Mint wBLT with 0.00001 ETH", "{:,.18f}".format(to_mint / 1e18))
+    print("\n🥸 Mint wBLT with 0.002 ETH", "{:,.18f}".format(to_mint / 1e18))
 
     # how much weth do we need for that same amount of WBLT?
     weth_needed = router.quoteMintAmountBLT(weth, to_mint)
@@ -42,7 +42,7 @@ def test_basic_swaps(
     weth_to_wblt = [
         (weth.address, w_blt.address, False),
     ]
-    weth_to_mint = 1e15
+    weth_to_mint = 2e15
     before = w_blt.balanceOf(screamsh)
     router.swapExactTokensForTokens(
         weth_to_mint, 0, weth_to_wblt, screamsh, 2**256 - 1, {"from": screamsh}
@@ -66,13 +66,13 @@ def test_basic_swaps(
         "{:,.8f}".format(received_mint / 1e18),
     )
 
-    weth_to_swap = 1e15
+    weth_to_swap = 2e15
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
     ]
     amounts = router.getAmountsOut(weth_to_swap, weth_to_bmx)
-    print("🥸 Get amounts out for 0.001 ETH:", amounts)
+    print("🥸 Get amounts out for 0.002 ETH:", amounts)
 
     # swap for some BMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})
@@ -640,6 +640,9 @@ def test_options(
     gauge,
     obmx,
 ):
+    # send screamsh some WETH
+    token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+    weth.transfer(screamsh, 10e18, {"from": token_whale})
 
     # testing oBMX
     weth.approve(router, 2**256 - 1, {"from": screamsh})

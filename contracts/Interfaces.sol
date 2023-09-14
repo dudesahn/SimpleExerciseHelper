@@ -49,6 +49,8 @@ interface VaultAPI is IERC20 {
         uint256 maxShares,
         address recipient
     ) external returns (uint256);
+
+    function pricePerShare() external view returns (uint256);
 }
 
 interface IBMX is IERC20 {

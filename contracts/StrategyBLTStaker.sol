@@ -38,7 +38,11 @@ interface IMorphex is IERC20 {
         uint256
     ) external returns (uint256);
 
-    function exercise(uint256 _amount, uint256 _slippageAllowed) external;
+    function exercise(
+        uint256 _amount,
+        uint256 _profitSlippageAllowed,
+        uint256 _swapSlippageAllowed
+    ) external;
 }
 
 contract StrategyBLTStaker is BaseStrategy {
@@ -69,10 +73,7 @@ contract StrategyBLTStaker is BaseStrategy {
 
     /// @notice Helper contract to sell oBMX for WETH.
     IMorphex public constant exerciseHelperBMX =
-        IMorphex(0xE68Bd685e6925a7aa2Ac94e3891E30A8d466BEe2);
-
-    /// @notice Adjustable slippage param for exercising our oBMX. 10,000 = 100% slippage allowed.
-    uint256 public oBMXSlippage = 300;
+        IMorphex(0xB689fe6d0B7C6594c8aE2BFeD95059Eb8EF3A0B9);
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -124,6 +125,11 @@ contract StrategyBLTStaker is BaseStrategy {
         return oBMX.balanceOf(address(this));
     }
 
+    /// @notice Balance of WETH sitting in our strategy.
+    function balanceOfoWeth() public view returns (uint256) {
+        return weth.balanceOf(address(this));
+    }
+
     /// @notice Balance of WETH claimable from BLT fees.
     function claimableWeth() public view returns (uint256) {
         return fsMlp.claimable(address(this));
@@ -140,12 +146,6 @@ contract StrategyBLTStaker is BaseStrategy {
     {
         // don't convert to ETH, leave as WETH
         _handleRewards();
-
-        // exercise oBMX for WETH if we have enough
-        uint256 toExercise = balanceOfoBmx();
-        if (toExercise > 10e18) {
-            exerciseHelperBMX.exercise(toExercise, oBMXSlippage);
-        }
 
         // serious loss should never happen, but if it does, let's record it accurately
         uint256 assets = estimatedTotalAssets();
@@ -184,9 +184,26 @@ contract StrategyBLTStaker is BaseStrategy {
 
     /// @notice Provide any loose WETH to BLT and stake it.
     /// @dev May only be called by vault managers.
+    function exercise(
+        uint256 _profitSlippage,
+        uint256 _swapSlippage
+    ) external onlyVaultManagers {
+        // exercise oBMX for WETH if we have enough
+        uint256 toExercise = balanceOfoBmx();
+        if (toExercise > 0) {
+            exerciseHelperBMX.exercise(
+                toExercise,
+                _profitSlippage,
+                _swapSlippage
+            );
+        }
+    }
+
+    /// @notice Provide any loose WETH to BLT and stake it.
+    /// @dev May only be called by vault managers.
     /// @return Amount of BLT staked from profits.
     function mintAndStake() external onlyVaultManagers returns (uint256) {
-        uint256 wethBalance = weth.balanceOf(address(this));
+        uint256 wethBalance = balanceOfoWeth();
         uint256 newMlp;
 
         // deposit our WETH to BLT
@@ -240,13 +257,14 @@ contract StrategyBLTStaker is BaseStrategy {
 
     // migrate our want token to a new strategy if needed
     function prepareMigration(address _newStrategy) internal override {
-        // signal that we would like to migrate our position
-        // we will also need to accept the transfer on our new strategy ***
-        rewardRouter.signalTransfer(_newStrategy);
-
-        uint256 wethBalance = weth.balanceOf(address(this));
+        uint256 wethBalance = balanceOfoWeth();
         if (wethBalance > 0) {
             weth.safeTransfer(_newStrategy, wethBalance);
+        }
+
+        uint256 oBmxBalance = balanceOfoBmx();
+        if (oBmxBalance > 0) {
+            oBMX.safeTransfer(_newStrategy, oBmxBalance);
         }
     }
 
@@ -374,17 +392,5 @@ contract StrategyBLTStaker is BaseStrategy {
     ) external onlyVaultManagers {
         harvestProfitMinInUsdc = _harvestProfitMinInUsdc;
         harvestProfitMaxInUsdc = _harvestProfitMaxInUsdc;
-    }
-
-    /**
-     * @notice
-     *  Update slippage allowed when exercising oBMX to WETH.
-     * @param _slippage Slippage allowed, in BPS (10,000 = 100%).
-     */
-    function setoBMXSlippage(uint256 _slippage) external onlyVaultManagers {
-        if (_slippage > 10_000) {
-            revert("Max of 10,000");
-        }
-        oBMXSlippage = _slippage;
     }
 }
