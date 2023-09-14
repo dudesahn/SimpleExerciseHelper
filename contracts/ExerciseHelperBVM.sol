@@ -85,8 +85,9 @@ contract ExerciseHelperBVM is Ownable2Step {
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address internal constant feeAddress =
-        0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
+    address internal feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
+
+    uint256 public fee = 25;
 
     uint256 internal constant MAX_BPS = 10_000;
     uint256 internal constant DISCOUNT_DENOMINATOR = 100;
@@ -157,7 +158,7 @@ contract ExerciseHelperBVM is Ownable2Step {
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
-            profitSlippage = (realProfit * 1e18) / expectedProfit;
+            profitSlippage = 1e18 - ((realProfit * 1e18) / expectedProfit);
         }
 
         // allow for our expected slippage as well
@@ -267,9 +268,9 @@ contract ExerciseHelperBVM is Ownable2Step {
             slippageAllowed
         );
 
-        // check our profit and take fees
-        uint256 profit = weth.balanceOf(address(this));
-        _takeFees(profit);
+        // check our output and take fees
+        uint256 wethAmount = weth.balanceOf(address(this));
+        _takeFees(wethAmount);
 
         // repay our flash loan
         uint256 payback = _amounts[0] + _feeAmounts[0];
@@ -313,11 +314,12 @@ contract ExerciseHelperBVM is Ownable2Step {
     }
 
     /**
-     * @notice Apply fees to our profit amount.
-     * @param _profitAmount Amount to apply 0.25% fee to.
+     * @notice Apply fees to our after-swap total.
+     * @dev Default is 0.25% but this may be updated later.
+     * @param _amount Amount to apply our fee to.
      */
-    function _takeFees(uint256 _profitAmount) internal {
-        uint256 toSend = (_profitAmount * 25) / MAX_BPS;
+    function _takeFees(uint256 _amount) internal {
+        uint256 toSend = (_amount * fee) / MAX_BPS;
         _safeTransfer(address(weth), feeAddress, toSend);
     }
 
@@ -332,6 +334,20 @@ contract ExerciseHelperBVM is Ownable2Step {
         uint256 _tokenAmount
     ) external onlyOwner {
         _safeTransfer(_tokenAddress, owner(), _tokenAmount);
+    }
+
+    /**
+     * @notice
+     *  Update fee for oBMX -> WETH conversion.
+     * @param _recipient Fee recipient address.
+     * @param _newFee New fee, out of 10,000.
+     */
+    function setFee(address _recipient, uint256 _newFee) external onlyOwner {
+        if (_newFee > DISCOUNT_DENOMINATOR) {
+            revert("Fee max is 1%");
+        }
+        fee = _newFee;
+        feeAddress = _recipient;
     }
 
     /* ========== HELPER FUNCTIONS ========== */
