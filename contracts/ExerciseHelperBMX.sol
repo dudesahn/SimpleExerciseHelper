@@ -313,7 +313,7 @@ contract ExerciseHelperBMX is Ownable2Step {
         // check our profit and take fees
         uint256 profit = weth.balanceOf(address(this));
         _takeFees(profit);
-        
+
         // repay our flash loan
         uint256 payback = _amounts[0] + _feeAmounts[0];
         _safeTransfer(address(weth), address(balancerVault), payback);

@@ -73,7 +73,7 @@ contract StrategyBLTStaker is BaseStrategy {
 
     /// @notice Helper contract to sell oBMX for WETH.
     IMorphex public constant exerciseHelperBMX =
-        IMorphex(0xB689fe6d0B7C6594c8aE2BFeD95059Eb8EF3A0B9);
+        IMorphex(0x309b9c3b591ceECd093e5fc0604456C1eFECC460);
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
