@@ -62,37 +62,37 @@ interface IRouter {
 
 contract ExerciseHelperBVM is Ownable2Step {
     /// @notice Option token address
-    IoToken public constant oBVM =
+    IoToken internal constant oBVM =
         IoToken(0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E);
 
     /// @notice WETH, payment token
-    IERC20 public constant weth =
+    IERC20 internal constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
 
     /// @notice BVM, sell this for WETH
-    IERC20 public constant bvm =
+    IERC20 internal constant bvm =
         IERC20(0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a);
 
     /// @notice Flashloan from Balancer vault
-    IBalancer public constant balancerVault =
+    IBalancer internal constant balancerVault =
         IBalancer(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
 
     /// @notice BVM router for swaps
-    IRouter constant router =
-        IRouter(0xE11b93B61f6291d35c5a2beA0A9fF169080160cF);
+    IRouter internal constant router =
+        IRouter(0x68dc9978d159300767e541e0DDde1E1B2Ec79680);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address public constant feeAddress =
+    address internal constant feeAddress =
         0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
     uint256 internal constant MAX_BPS = 10_000;
     uint256 internal constant DISCOUNT_DENOMINATOR = 100;
 
     /// @notice Route for selling BVM -> WETH
-    IRouter.route[] public bvmToWeth;
+    IRouter.route[] internal bvmToWeth;
 
     constructor(IRouter.route[] memory _bvmToWeth) {
         // create our swap route
@@ -112,6 +112,9 @@ contract ExerciseHelperBVM is Ownable2Step {
      * @return paymentTokenNeeded How much payment token is needed for given amount of oToken.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
      * @return realProfit Simulated profit in paymentToken after repaying flash loan.
+     * @return expectedProfit Calculated ideal profit based on redemption discount plus allowed slippage.
+     * @return profitSlippage Expected profit slippage with given oToken amount, 18 decimals. Zero
+     *  means extra profit (positive slippage).
      */
     function quoteExerciseProfit(
         uint256 _optionTokenAmount,
@@ -123,7 +126,8 @@ contract ExerciseHelperBVM is Ownable2Step {
             uint256 paymentTokenNeeded,
             bool withinSlippageTolerance,
             uint256 realProfit,
-            uint256 expectedProfitDeleteBeforeProd
+            uint256 expectedProfit,
+            uint256 profitSlippage
         )
     {
         if (_optionTokenAmount == 0) {
@@ -143,29 +147,35 @@ contract ExerciseHelperBVM is Ownable2Step {
             address(weth),
             false
         );
-
-        // check our simulated and ideal profit
         realProfit = spotPaymentTokenReceived - paymentTokenNeeded;
-        uint256 expectedProfit = (spotPaymentTokenReceived *
-            (DISCOUNT_DENOMINATOR - oBVM.discount())) / DISCOUNT_DENOMINATOR;
 
-        if (realProfit > expectedProfit) {
-            // if TWAP is in our favor, then we automatically are within our tolerance (get more than we would expect)
-            withinSlippageTolerance = true;
-        } else {
-            // otherwise, check if real profit is greater than expected when accounting for allowed slippage
-            withinSlippageTolerance =
-                realProfit >
-                (expectedProfit * (MAX_BPS - _profitSlippageAllowed)) / MAX_BPS;
+        // calculate our ideal profit using the discount
+        uint256 discount = oBVM.discount();
+        expectedProfit =
+            (paymentTokenNeeded * (DISCOUNT_DENOMINATOR - discount)) /
+            discount;
+
+        // if profitSlippage returns zero, we have positive slippage (extra profit)
+        if (expectedProfit > realProfit) {
+            profitSlippage = (realProfit * 1e18) / expectedProfit;
         }
-        expectedProfitDeleteBeforeProd = expectedProfit;
+
+        // allow for our expected slippage as well
+        expectedProfit =
+            (expectedProfit * (MAX_BPS - _profitSlippageAllowed)) /
+            MAX_BPS;
+
+        // check if real profit is greater than expected when accounting for allowed slippage
+        if (realProfit > expectedProfit) {
+            withinSlippageTolerance = true;
+        }
     }
 
     /**
      * @notice Exercise our oBVM for WETH.
      * @param _amount The amount of oBVM to exercise to WETH.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
-     * @param _swapSlippageAllowed Slippage (really price impact) we allow while exercising.
+     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
      */
     function exercise(
         uint256 _amount,
@@ -179,6 +189,7 @@ contract ExerciseHelperBVM is Ownable2Step {
         (
             uint256 paymentTokenNeeded,
             bool withinSlippageTolerance,
+            ,
             ,
 
         ) = quoteExerciseProfit(_amount, _profitSlippageAllowed);
@@ -197,7 +208,7 @@ contract ExerciseHelperBVM is Ownable2Step {
     /**
      * @notice Flash loan our WETH from Balancer.
      * @param _amountNeeded The amount of WETH needed.
-     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
      */
     function _borrowPaymentToken(
         uint256 _amountNeeded,
@@ -256,12 +267,13 @@ contract ExerciseHelperBVM is Ownable2Step {
             slippageAllowed
         );
 
-        uint256 payback = _amounts[0] + _feeAmounts[0];
-        _safeTransfer(address(weth), address(balancerVault), payback);
-
         // check our profit and take fees
         uint256 profit = weth.balanceOf(address(this));
         _takeFees(profit);
+        
+        // repay our flash loan
+        uint256 payback = _amounts[0] + _feeAmounts[0];
+        _safeTransfer(address(weth), address(balancerVault), payback);
         flashEntered = false;
     }
 
@@ -269,7 +281,7 @@ contract ExerciseHelperBVM is Ownable2Step {
      * @notice Exercise our oBVM, then swap BVM to WETH.
      * @param _optionTokenAmount Amount of oBVM to exercise.
      * @param _paymentTokenAmount Amount of WETH needed to pay for exercising.
-     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
      */
     function _exerciseAndSwap(
         uint256 _optionTokenAmount,

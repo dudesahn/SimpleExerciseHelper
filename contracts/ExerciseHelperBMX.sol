@@ -60,55 +60,56 @@ interface IRouter {
 
 contract ExerciseHelperBMX is Ownable2Step {
     /// @notice Option token address
-    IoToken public constant oBMX =
+    IoToken internal constant oBMX =
         IoToken(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
     /// @notice WETH, payment token
-    IERC20 public constant weth =
+    IERC20 internal constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
 
     /// @notice BMX, sell this for WETH
-    IERC20 public constant bmx =
+    IERC20 internal constant bmx =
         IERC20(0x548f93779fBC992010C07467cBaf329DD5F059B7);
 
-    IERC20 public constant wBLT =
+    /// @notice Wrapped BLT, our auto-compounding LP vault token
+    IERC20 internal constant wBLT =
         IERC20(0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A);
 
     /// @notice Flashloan from Balancer vault
-    IBalancer public constant balancerVault =
+    IBalancer internal constant balancerVault =
         IBalancer(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
 
     /// @notice BMX router for swaps
-    IRouter public constant router =
-        IRouter(0x73f0F51e04B639A1D71f9fe8A1e38e6e88cEE6eA);
+    IRouter internal constant router =
+        IRouter(0x40CfeC24170f6e87D645d5884a7c854Cb208314F);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address public constant feeAddress =
+    address internal constant feeAddress =
         0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
     uint256 internal constant MAX_BPS = 10_000;
     uint256 internal constant DISCOUNT_DENOMINATOR = 100;
 
     /// @notice Route for selling BMX -> WETH
-    IRouter.route[] public bmxToWeth;
+    IRouter.route[] internal bmxToWeth;
 
     /// @notice Route for selling wBLT -> WETH
-    IRouter.route[] public wBltoWeth;
+    IRouter.route[] internal wBltToWeth;
 
     /// @notice Route for selling WETH -> wBLT
-    IRouter.route[] public wethToWblt;
+    IRouter.route[] internal wethToWblt;
 
     constructor(
-        IRouter.route[] memory _wBltoWeth,
+        IRouter.route[] memory _wBltToWeth,
         IRouter.route[] memory _bmxToWeth,
         IRouter.route[] memory _wethToWblt
     ) {
         // create our swap routes
-        for (uint i; i < _wBltoWeth.length; ++i) {
-            wBltoWeth.push(_wBltoWeth[i]);
+        for (uint i; i < _wBltToWeth.length; ++i) {
+            wBltToWeth.push(_wBltToWeth[i]);
         }
 
         for (uint i; i < _bmxToWeth.length; ++i) {
@@ -121,18 +122,22 @@ contract ExerciseHelperBMX is Ownable2Step {
 
         // do necessary approvals
         weth.approve(address(oBMX), type(uint256).max);
+        wBLT.approve(address(oBMX), type(uint256).max);
         bmx.approve(address(router), type(uint256).max);
         weth.approve(address(router), type(uint256).max);
-        wBLT.approve(address(oBMX), type(uint256).max);
+        wBLT.approve(address(router), type(uint256).max);
     }
 
     /**
      * @notice Check if spot swap and exercising fall are similar enough for our liking.
      * @param _optionTokenAmount The amount of oBMX to exercise to WETH.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
-     * @return paymentTokenNeeded How much payment token is needed for given amount of oToken.
+     * @return wethNeeded How much WETH is needed for given amount of oBMX.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
-     * @return realProfit Simulated profit in paymentToken after repaying flash loan.
+     * @return realProfit Simulated profit in WETH after repaying flash loan.
+     * @return expectedProfit Calculated ideal profit based on redemption discount plus allowed slippage.
+     * @return profitSlippage Expected profit slippage with given oToken amount, 18 decimals. Zero
+     *  means extra profit (positive slippage).
      */
     function quoteExerciseProfit(
         uint256 _optionTokenAmount,
@@ -141,10 +146,11 @@ contract ExerciseHelperBMX is Ownable2Step {
         public
         view
         returns (
-            uint256 paymentTokenNeeded,
+            uint256 wethNeeded,
             bool withinSlippageTolerance,
             uint256 realProfit,
-            uint256 expectedProfitDeleteBeforeProd
+            uint256 expectedProfit,
+            uint256 profitSlippage
         )
     {
         if (_optionTokenAmount == 0) {
@@ -154,31 +160,45 @@ contract ExerciseHelperBMX is Ownable2Step {
             revert("Slippage must be less than 10,000");
         }
 
-        // figure out how much WETH we need for our oBMX amount
-        paymentTokenNeeded = oBMX.getDiscountedPrice(_optionTokenAmount);
+        // calculate how much WETH we need for our oBMX amount
+        // we need this many wBLT for a given amount of oBMX
+        uint256 wBLTNeeded = oBMX.getDiscountedPrice(_optionTokenAmount);
+        // we need this much WETH to mint that much wBLT
+        wethNeeded = router.quoteMintAmountBLT(address(weth), wBLTNeeded);
 
-        // compare our token needed to spot price
+        // compare our weth needed to simulated swap
         uint256[] memory amounts = router.getAmountsOut(
             _optionTokenAmount,
             bmxToWeth
         );
-        uint256 spotPaymentTokenReceived = amounts[2];
+        uint256 wethReceived = amounts[2];
 
-        // check our simulated and ideal profit
-        realProfit = spotPaymentTokenReceived - paymentTokenNeeded;
-        uint256 expectedProfit = (spotPaymentTokenReceived *
-            (DISCOUNT_DENOMINATOR - oBMX.discount())) / DISCOUNT_DENOMINATOR;
-
-        if (realProfit > expectedProfit) {
-            // if TWAP is in our favor, then we automatically are within our tolerance (get more than we would expect)
-            withinSlippageTolerance = true;
+        // compare make sure we don't spend more than we have
+        if (wethNeeded > wethReceived) {
+            revert("Cost exceeds profit");
         } else {
-            // otherwise, check if real profit is greater than expected when accounting for allowed slippage
-            withinSlippageTolerance =
-                realProfit >
-                (expectedProfit * (MAX_BPS - _profitSlippageAllowed)) / MAX_BPS;
+            realProfit = wethReceived - wethNeeded;
         }
-        expectedProfitDeleteBeforeProd = expectedProfit;
+
+        uint256 discount = oBMX.discount();
+        expectedProfit =
+            (wethNeeded * (DISCOUNT_DENOMINATOR - discount)) /
+            discount;
+
+        // if profitSlippage returns zero, we have positive slippage (extra profit)
+        if (expectedProfit > realProfit) {
+            profitSlippage = (realProfit * 1e18) / expectedProfit;
+        }
+
+        // allow for our expected slippage as well
+        expectedProfit =
+            (expectedProfit * (MAX_BPS - _profitSlippageAllowed)) /
+            MAX_BPS;
+
+        // check if real profit is greater than expected when accounting for allowed slippage
+        if (realProfit > expectedProfit) {
+            withinSlippageTolerance = true;
+        }
     }
 
     /**
@@ -192,37 +212,51 @@ contract ExerciseHelperBMX is Ownable2Step {
         uint256 _profitSlippageAllowed,
         uint256 _swapSlippageAllowed
     ) external {
-        // transfer option token to this contract
-        _safeTransferFrom(address(oBMX), msg.sender, address(this), _amount);
-
         // check that slippage tolerance for profit is okay
         (
-            uint256 paymentTokenNeeded,
+            uint256 wethNeeded,
             bool withinSlippageTolerance,
+            ,
             ,
 
         ) = quoteExerciseProfit(_amount, _profitSlippageAllowed);
 
+        // revert if too much slippage
+        if (!withinSlippageTolerance) {
+            revert("Profit slippage higher than allowed");
+        }
+
+        // transfer option token to this contract
+        _safeTransferFrom(address(oBMX), msg.sender, address(this), _amount);
+
         // get our flash loan started
-        _borrowPaymentToken(paymentTokenNeeded, _swapSlippageAllowed);
+        _borrowPaymentToken(wethNeeded, _swapSlippageAllowed);
 
         // send remaining profit back to user
         _safeTransfer(address(weth), msg.sender, weth.balanceOf(address(this)));
 
-        // return any leftover wBLT
+        // swap any leftover wBLT to WETH, unless dust, then just send back as wBLT
         uint256 remainingBalance = wBLT.balanceOf(address(this));
-        if (remainingBalance > 0) {
+        if (remainingBalance > 1e17) {
+            router.swapExactTokensForTokens(
+                remainingBalance,
+                0,
+                wBltToWeth,
+                msg.sender,
+                block.timestamp
+            );
+        } else {
             _safeTransfer(address(wBLT), msg.sender, remainingBalance);
         }
     }
 
     /**
      * @notice Flash loan our WETH from Balancer.
-     * @param _amountNeeded The amount of WETH needed.
+     * @param _wethNeeded The amount of WETH needed.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
     function _borrowPaymentToken(
-        uint256 _amountNeeded,
+        uint256 _wethNeeded,
         uint256 _slippageAllowed
     ) internal {
         // change our state
@@ -230,17 +264,14 @@ contract ExerciseHelperBMX is Ownable2Step {
 
         address _weth = address(weth);
 
-        // need to convert this amount of wBLT to WETH
-        _amountNeeded = router.quoteMintAmountBLT(_weth, _amountNeeded);
-
         // create our input args
         address[] memory tokens = new address[](1);
         tokens[0] = _weth;
 
         uint256[] memory amounts = new uint256[](1);
-        amounts[0] = _amountNeeded;
+        amounts[0] = _wethNeeded;
 
-        bytes memory userData = abi.encode(_amountNeeded, _slippageAllowed);
+        bytes memory userData = abi.encode(_wethNeeded, _slippageAllowed);
 
         // call the flash loan
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
@@ -270,54 +301,47 @@ contract ExerciseHelperBMX is Ownable2Step {
         }
 
         // pull our option info from the userData
-        (uint256 paymentTokenNeeded, uint256 slippageAllowed) = abi.decode(
+        (uint256 wethToExercise, uint256 slippageAllowed) = abi.decode(
             _userData,
             (uint256, uint256)
         );
 
         // exercise our option with our new WETH, swap all BMX to WETH
         uint256 optionTokenBalance = oBMX.balanceOf(address(this));
-        _exerciseAndSwap(
-            optionTokenBalance,
-            paymentTokenNeeded,
-            slippageAllowed
-        );
-
-        uint256 payback = _amounts[0] + _feeAmounts[0];
-        _safeTransfer(address(weth), address(balancerVault), payback);
+        _exerciseAndSwap(optionTokenBalance, wethToExercise, slippageAllowed);
 
         // check our profit and take fees
         uint256 profit = weth.balanceOf(address(this));
         _takeFees(profit);
+        
+        // repay our flash loan
+        uint256 payback = _amounts[0] + _feeAmounts[0];
+        _safeTransfer(address(weth), address(balancerVault), payback);
         flashEntered = false;
     }
 
     /**
      * @notice Exercise our oBMX, then swap BMX to WETH.
      * @param _optionTokenAmount Amount of oBMX to exercise.
-     * @param _paymentTokenAmount Amount of WETH needed to pay for exercising. Must
+     * @param _wethAmount Amount of WETH needed to pay for exercising. Must
      *  first be converted to wBLT.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
     function _exerciseAndSwap(
         uint256 _optionTokenAmount,
-        uint256 _paymentTokenAmount,
+        uint256 _wethAmount,
         uint256 _slippageAllowed
     ) internal {
         // deposit our weth to wBLT
-        router.swapExactTokensForTokens(
-            _paymentTokenAmount,
+        uint256[] memory amountsWeth = router.swapExactTokensForTokens(
+            _wethAmount,
             0,
             wethToWblt,
             address(this),
             block.timestamp
         );
 
-        oBMX.exercise(
-            _optionTokenAmount,
-            wBLT.balanceOf(address(this)),
-            address(this)
-        );
+        oBMX.exercise(_optionTokenAmount, amountsWeth[1], address(this));
         uint256 bmxReceived = bmx.balanceOf(address(this));
 
         // use this to minimize issues with slippage
