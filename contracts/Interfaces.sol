@@ -64,6 +64,11 @@ interface IBMX is IERC20 {
 
     function lastAddedAt(address _account) external returns (uint256);
 
+    function getPaymentTokenAmountForExerciseLp(
+        uint256,
+        uint256
+    ) external returns (uint256, uint256);
+
     function addLiquidity(
         address _token,
         uint256 _amount,
@@ -654,4 +659,16 @@ interface IWETH is IERC20 {
     function transfer(address to, uint256 value) external returns (bool);
 
     function withdraw(uint256) external;
+}
+
+interface IShareHelper {
+    function sharesToAmount(
+        address vault,
+        uint shares
+    ) external view returns (uint);
+
+    function amountToShares(
+        address vault,
+        uint amount
+    ) external view returns (uint);
 }

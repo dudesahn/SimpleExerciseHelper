@@ -81,7 +81,7 @@ contract ExerciseHelperBMX is Ownable2Step {
 
     /// @notice BMX router for swaps
     IRouter internal constant router =
-        IRouter(0x40CfeC24170f6e87D645d5884a7c854Cb208314F);
+        IRouter(0x2D24BA23CEd6448a9408316f3961222bBE61402F);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;

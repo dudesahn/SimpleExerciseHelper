@@ -54,6 +54,9 @@ contract wBLTRouter is Ownable2Step {
     IBMX internal constant vaultUtils =
         IBMX(0xec31c83C5689C66cb77DdB5378852F3707022039);
 
+    IShareHelper internal constant shareValueHelper =
+        IShareHelper(0x7EF2dBc5B28A3BdE7162442f95C691Be7F820867);
+
     constructor() {
         pairCodeHash = IPairFactory(factory).pairCodeHash();
 
@@ -600,8 +603,8 @@ contract wBLTRouter is Ownable2Step {
         uint256 _discount,
         uint256 _deadline
     ) external returns (uint256 paymentAmount, uint256 lpAmount) {
+        // transfer in our funds
         _safeTransferFrom(_tokenToUse, msg.sender, address(this), _amount);
-
         _safeTransferFrom(
             address(oBMX),
             msg.sender,
@@ -635,7 +638,7 @@ contract wBLTRouter is Ownable2Step {
     /**
      * @notice
      *  Exercise our oBMX options using raw ether.
-     * @param _amount The amount of our token to use to generate our wBLT for exercising.
+     * @param _amount The amount of ETH to use to generate our wBLT for exercising.
      * @param _oTokenAmount The amount of option tokens to exercise.
      * @param _discount Our discount in exercising the option; this determines our lockup time.
      * @param _deadline Deadline for transaction to complete.
@@ -689,6 +692,32 @@ contract wBLTRouter is Ownable2Step {
 
     /**
      * @notice
+     *  Check how much underlying (or ETH) we need to exercise to LP.
+     * @param _tokenToUse The token to deposit to wBLT.
+     * @param _oTokenAmount The amount of oBMX to exercise.
+     * @param _discount Our discount in exercising the option; this determines our lockup time.
+     * @return atomicAmount The amount of token needed if exercising atomically from this calculation.
+     * @return safeAmount Add an extra 0.01% to allow for per-second wBLT share price increases.
+     */
+    function quoteTokenNeededToExerciseLp(
+        address _tokenToUse,
+        uint256 _oTokenAmount,
+        uint256 _discount
+    ) external returns (uint256 atomicAmount, uint256 safeAmount) {
+        // calculate the exact amount we need
+        (uint256 amountNeeded, uint256 amount2) = oBMX
+            .getPaymentTokenAmountForExerciseLp(_oTokenAmount, _discount);
+
+        amountNeeded += amount2;
+
+        uint256 atomicAmount = quoteMintAmountBLT(_tokenToUse, amountNeeded);
+
+        // give ourselves 0.01% of space for wBLT share price rising
+        safeAmount = (atomicAmount * 10_001) / 10_000;
+    }
+
+    /**
+     * @notice
      *  Check how much wBLT we get from a given amount of underlying.
      * @param _token The token to deposit to wBLT.
      * @param _amount The amount of the token to deposit.
@@ -733,7 +762,10 @@ contract wBLTRouter is Ownable2Step {
             : (usdgMintAmount * bltSupply) / aumInUsdg;
 
         // convert our BLT amount to wBLT
-        wrappedBLTMintAmount = (BLTMintAmount * 1e18) / wBLT.pricePerShare();
+        wrappedBLTMintAmount = shareValueHelper.amountToShares(
+            address(wBLT),
+            BLTMintAmount
+        );
     }
 
     /**
@@ -750,7 +782,7 @@ contract wBLTRouter is Ownable2Step {
         require(_amount > 0, "invalid _amount");
 
         // convert our wBLT amount to BLT
-        _amount = (_amount * wBLT.pricePerShare()) / 1e18;
+        _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount);
 
         // convert our BLT to bUSD (USDG)
         uint256 aumInUsdg = bltManager.getAumInUsdg(false);
@@ -794,21 +826,21 @@ contract wBLTRouter is Ownable2Step {
         require(_amount > 0, "invalid _amount");
 
         // convert our wBLT amount to BLT
-        _amount = 1 + (_amount * wBLT.pricePerShare()) / 1e18;
+        _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount);
 
         // convert our BLT to bUSD (USDG)
         // maximize here to use max BLT price, to make sure we get enough BLT out
         uint256 aumInUsdg = bltManager.getAumInUsdg(true);
         uint256 bltSupply = sBLT.totalSupply();
-        uint256 usdgAmount = 1 + (_amount * aumInUsdg) / bltSupply;
+        uint256 usdgAmount = Math.ceilDiv((_amount * aumInUsdg), bltSupply);
 
         // price is returned in 1e30 from vault
         uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
 
-        startingTokenAmount =
-            1 +
-            (usdgAmount * morphexVault.PRICE_PRECISION()) /
-            tokenPrice;
+        startingTokenAmount = Math.ceilDiv(
+            usdgAmount * morphexVault.PRICE_PRECISION(),
+            tokenPrice
+        );
 
         startingTokenAmount = morphexVault.adjustForDecimals(
             startingTokenAmount,
@@ -822,10 +854,10 @@ contract wBLTRouter is Ownable2Step {
             usdgAmount
         );
 
-        startingTokenAmount =
-            1 +
-            (startingTokenAmount * morphexVault.BASIS_POINTS_DIVISOR()) /
-            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints);
+        startingTokenAmount = Math.ceilDiv(
+            startingTokenAmount * morphexVault.BASIS_POINTS_DIVISOR(),
+            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)
+        );
     }
 
     // check if a token is in BLT
@@ -1120,71 +1152,6 @@ contract wBLTRouter is Ownable2Step {
         require(amountA > 0, "Router: INSUFFICIENT_AMOUNT");
         require(reserveA > 0 && reserveB > 0, "Router: INSUFFICIENT_LIQUIDITY");
         amountB = (amountA * reserveB) / reserveA;
-    }
-
-    function quoteAddLiquidity(
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint amountADesired,
-        uint amountBDesired
-    ) external view returns (uint amountA, uint amountB, uint liquidity) {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(tokenA, tokenB, stable);
-        (uint reserveA, uint reserveB) = (0, 0);
-        uint _totalSupply = 0;
-        if (_pair != address(0)) {
-            _totalSupply = IERC20(_pair).totalSupply();
-            (reserveA, reserveB) = getReserves(tokenA, tokenB, stable);
-        }
-        if (reserveA == 0 && reserveB == 0) {
-            (amountA, amountB) = (amountADesired, amountBDesired);
-            liquidity = Math.sqrt(amountA * amountB) - MINIMUM_LIQUIDITY;
-        } else {
-            uint amountBOptimal = quoteLiquidity(
-                amountADesired,
-                reserveA,
-                reserveB
-            );
-            if (amountBOptimal <= amountBDesired) {
-                (amountA, amountB) = (amountADesired, amountBOptimal);
-                liquidity = Math.min(
-                    (amountA * _totalSupply) / reserveA,
-                    (amountB * _totalSupply) / reserveB
-                );
-            } else {
-                uint amountAOptimal = quoteLiquidity(
-                    amountBDesired,
-                    reserveB,
-                    reserveA
-                );
-                (amountA, amountB) = (amountAOptimal, amountBDesired);
-                liquidity = Math.min(
-                    (amountA * _totalSupply) / reserveA,
-                    (amountB * _totalSupply) / reserveB
-                );
-            }
-        }
-    }
-
-    function quoteRemoveLiquidity(
-        address tokenA,
-        address tokenB,
-        bool stable,
-        uint liquidity
-    ) external view returns (uint amountA, uint amountB) {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(tokenA, tokenB, stable);
-
-        if (_pair == address(0)) {
-            return (0, 0);
-        }
-
-        (uint reserveA, uint reserveB) = getReserves(tokenA, tokenB, stable);
-        uint _totalSupply = IERC20(_pair).totalSupply();
-
-        amountA = (liquidity * reserveA) / _totalSupply; // using balances ensures pro-rata distribution
-        amountB = (liquidity * reserveB) / _totalSupply; // using balances ensures pro-rata distribution
     }
 
     function _addLiquidity(

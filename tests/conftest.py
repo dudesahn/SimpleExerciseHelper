@@ -295,7 +295,7 @@ elif chain_used == 8453:  # base
 
     @pytest.fixture(scope="session")
     def gov():  # BMX multisig 0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec
-        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+        yield accounts.at("0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec", force=True)
 
     @pytest.fixture(scope="session")
     def health_check():
@@ -461,8 +461,8 @@ if chain_used == 8453:
     def router(wBLTRouter, screamsh):
         router = screamsh.deploy(wBLTRouter)
         #         router = Contract.from_explorer(
-        #             "0x68dc9978d159300767e541e0DDde1E1B2Ec79680"
-        #         )  # v11
+        #             "0x1B6cCd9C1A1a1054B4e17f3482B101Ef18cB5cfA"
+        #         )  # v17
         yield router
 
     @pytest.fixture(scope="session")
