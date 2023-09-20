@@ -503,14 +503,6 @@ if chain_used == 8453:
     def obvm():
         yield interface.IERC20("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
 
-    # route to swap from BVM to WETH
-    @pytest.fixture(scope="session")
-    def bvm_route(bvm, weth):
-        bvm_route = [
-            (bvm.address, weth.address, False),
-        ]
-        yield bvm_route
-
     # route to swap from wBLT to WETH
     @pytest.fixture(scope="session")
     def wblt_route(w_blt, weth):
@@ -518,15 +510,6 @@ if chain_used == 8453:
             (w_blt.address, weth.address, False),
         ]
         yield wblt_route
-
-    # route to swap from BMX to WETH via wBLT
-    @pytest.fixture(scope="session")
-    def bmx_route(bmx, weth, w_blt):
-        bmx_route = [
-            (bmx.address, w_blt.address, False),
-            (w_blt.address, weth.address, False),
-        ]
-        yield bmx_route
 
     # route to swap from WETH to wBLT
     @pytest.fixture(scope="session")
@@ -538,22 +521,21 @@ if chain_used == 8453:
 
     # our dump helper
     @pytest.fixture(scope="function")
-    def bvm_exercise_helper(ExerciseHelperBVM, guardian, bvm_route):
+    def bvm_exercise_helper(SimpleExerciseHelper, guardian):
         bvm_exercise_helper = guardian.deploy(
-            ExerciseHelperBVM,
-            bvm_route,
+            SimpleExerciseHelper,
         )
         yield bvm_exercise_helper
 
     # our dump helper
     @pytest.fixture(scope="function")
     def bmx_exercise_helper(
-        ExerciseHelperBMX, guardian, router, wblt_route, bmx_route, weth_route
+        wBLTExerciseHelper, guardian, router, wblt_route, weth_route
     ):
-        #         bmx_exercise_helper = ExerciseHelperBMX.at(
+        #         bmx_exercise_helper = wBLTExerciseHelper.at(
         #             "0x99413e382629be72F89D80CCEEF40Fe80CF3934f"
         #         )
         bmx_exercise_helper = guardian.deploy(
-            ExerciseHelperBMX, wblt_route, bmx_route, weth_route
+            wBLTExerciseHelper, wblt_route, weth_route
         )
         yield bmx_exercise_helper

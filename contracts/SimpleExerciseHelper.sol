@@ -16,6 +16,8 @@ interface IoToken is IERC20 {
     ) external view returns (uint256);
 
     function discount() external view returns (uint256);
+
+    function underlyingToken() external view returns (address);
 }
 
 interface IBalancer {
@@ -34,18 +36,6 @@ interface IRouter {
         bool stable;
     }
 
-    function getAmountOut(
-        uint amountIn,
-        address tokenIn,
-        address tokenOut,
-        bool stable
-    ) external view returns (uint amount);
-
-    function getAmountsOut(
-        uint amountIn,
-        route[] memory routes
-    ) external view returns (uint[] memory amounts);
-
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -53,25 +43,25 @@ interface IRouter {
         address to,
         uint deadline
     ) external returns (uint[] memory amounts);
+
+    function getAmountOut(
+        uint amountIn,
+        address tokenIn,
+        address tokenOut,
+        bool stable
+    ) external view returns (uint amount);
 }
 
 /**
- * @title Exercise Helper BVM
- * @notice This contract easily converts oBVM to WETH using flash loans.
+ * @title Simple Exercise Helper
+ * @notice This contract easily converts oTokens paired with WETH
+ *  such as oBVM to WETH using flash loans.
  */
 
-contract ExerciseHelperBVM is Ownable2Step {
-    /// @notice Option token address
-    IoToken internal constant oBVM =
-        IoToken(0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E);
-
+contract SimpleExerciseHelper is Ownable2Step {
     /// @notice WETH, payment token
     IERC20 internal constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
-
-    /// @notice BVM, sell this for WETH
-    IERC20 internal constant bvm =
-        IERC20(0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a);
 
     /// @notice Flashloan from Balancer vault
     IBalancer internal constant balancerVault =
@@ -85,30 +75,17 @@ contract ExerciseHelperBVM is Ownable2Step {
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address internal feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
+    address public feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
     uint256 public fee = 25;
 
     uint256 internal constant MAX_BPS = 10_000;
     uint256 internal constant DISCOUNT_DENOMINATOR = 100;
 
-    /// @notice Route for selling BVM -> WETH
-    IRouter.route[] internal bvmToWeth;
-
-    constructor(IRouter.route[] memory _bvmToWeth) {
-        // create our swap route
-        for (uint i; i < _bvmToWeth.length; ++i) {
-            bvmToWeth.push(_bvmToWeth[i]);
-        }
-
-        // do necessary approvals
-        bvm.approve(address(router), type(uint256).max);
-        weth.approve(address(oBVM), type(uint256).max);
-    }
-
     /**
      * @notice Check if spot swap and exercising fall are similar enough for our liking.
-     * @param _optionTokenAmount The amount of oBVM to exercise to WETH.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount The amount of oToken to exercise to WETH.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
      * @return paymentTokenNeeded How much payment token is needed for given amount of oToken.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
@@ -118,6 +95,7 @@ contract ExerciseHelperBVM is Ownable2Step {
      *  means extra profit (positive slippage).
      */
     function quoteExerciseProfit(
+        address _oToken,
         uint256 _optionTokenAmount,
         uint256 _profitSlippageAllowed
     )
@@ -138,20 +116,22 @@ contract ExerciseHelperBVM is Ownable2Step {
             revert("Slippage must be less than 10,000");
         }
 
-        // figure out how much WETH we need for our oBVM amount
-        paymentTokenNeeded = oBVM.getDiscountedPrice(_optionTokenAmount);
+        // figure out how much WETH we need for our oToken amount
+        paymentTokenNeeded = IoToken(_oToken).getDiscountedPrice(
+            _optionTokenAmount
+        );
 
         // compare our token needed to spot price
         uint256 spotPaymentTokenReceived = router.getAmountOut(
             _optionTokenAmount,
-            address(bvm),
+            IoToken(_oToken).underlyingToken(),
             address(weth),
             false
         );
         realProfit = spotPaymentTokenReceived - paymentTokenNeeded;
 
         // calculate our ideal profit using the discount
-        uint256 discount = oBVM.discount();
+        uint256 discount = IoToken(_oToken).discount();
         expectedProfit =
             (paymentTokenNeeded * (DISCOUNT_DENOMINATOR - discount)) /
             discount;
@@ -173,18 +153,23 @@ contract ExerciseHelperBVM is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oBVM for WETH.
-     * @param _amount The amount of oBVM to exercise to WETH.
+     * @notice Exercise our oToken for WETH.
+     * @param _oToken The option token we are exercising.
+     * @param _amount The amount of oToken to exercise to WETH.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
-     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
+     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping underlying to WETH.
      */
     function exercise(
+        address _oToken,
         uint256 _amount,
         uint256 _profitSlippageAllowed,
         uint256 _swapSlippageAllowed
     ) external {
+        // first person does the approvals for everyone else, what a nice person!
+        _checkAllowance(_oToken);
+
         // transfer option token to this contract
-        _safeTransferFrom(address(oBVM), msg.sender, address(this), _amount);
+        _safeTransferFrom(_oToken, msg.sender, address(this), _amount);
 
         // check that slippage tolerance for profit is okay
         (
@@ -193,14 +178,14 @@ contract ExerciseHelperBVM is Ownable2Step {
             ,
             ,
 
-        ) = quoteExerciseProfit(_amount, _profitSlippageAllowed);
+        ) = quoteExerciseProfit(_oToken, _amount, _profitSlippageAllowed);
 
         if (!withinSlippageTolerance) {
             revert("Profit not within slippage tolerance, check TWAP");
         }
 
         // get our flash loan started
-        _borrowPaymentToken(paymentTokenNeeded, _swapSlippageAllowed);
+        _borrowPaymentToken(_oToken, paymentTokenNeeded, _swapSlippageAllowed);
 
         // send remaining profit back to user
         _safeTransfer(address(weth), msg.sender, weth.balanceOf(address(this)));
@@ -208,10 +193,12 @@ contract ExerciseHelperBVM is Ownable2Step {
 
     /**
      * @notice Flash loan our WETH from Balancer.
+     * @param _oToken The option token we are exercising.
      * @param _amountNeeded The amount of WETH needed.
-     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping underlying to WETH.
      */
     function _borrowPaymentToken(
+        address _oToken,
         uint256 _amountNeeded,
         uint256 _slippageAllowed
     ) internal {
@@ -225,7 +212,11 @@ contract ExerciseHelperBVM is Ownable2Step {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = _amountNeeded;
 
-        bytes memory userData = abi.encode(_amountNeeded, _slippageAllowed);
+        bytes memory userData = abi.encode(
+            _oToken,
+            _amountNeeded,
+            _slippageAllowed
+        );
 
         // call the flash loan
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
@@ -255,14 +246,16 @@ contract ExerciseHelperBVM is Ownable2Step {
         }
 
         // pull our option info from the userData
-        (uint256 paymentTokenNeeded, uint256 slippageAllowed) = abi.decode(
-            _userData,
-            (uint256, uint256)
-        );
+        (
+            address _oToken,
+            uint256 paymentTokenNeeded,
+            uint256 slippageAllowed
+        ) = abi.decode(_userData, (address, uint256, uint256));
 
-        // exercise our option with our new WETH, swap all BVM to WETH
-        uint256 optionTokenBalance = oBVM.balanceOf(address(this));
+        // exercise our option with our new WETH, swap all underlying to WETH
+        uint256 optionTokenBalance = IoToken(_oToken).balanceOf(address(this));
         _exerciseAndSwap(
+            _oToken,
             optionTokenBalance,
             paymentTokenNeeded,
             slippageAllowed
@@ -279,35 +272,52 @@ contract ExerciseHelperBVM is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oBVM, then swap BVM to WETH.
-     * @param _optionTokenAmount Amount of oBVM to exercise.
+     * @notice Exercise our oToken, then swap underlying to WETH.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount Amount of oToken to exercise.
      * @param _paymentTokenAmount Amount of WETH needed to pay for exercising.
-     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WETH.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping underlying to WETH.
      */
     function _exerciseAndSwap(
+        address _oToken,
         uint256 _optionTokenAmount,
         uint256 _paymentTokenAmount,
         uint256 _slippageAllowed
     ) internal {
-        oBVM.exercise(_optionTokenAmount, _paymentTokenAmount, address(this));
-        uint256 bvmReceived = bvm.balanceOf(address(this));
+        // pull our underlying from the oToken
+        IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
 
-        // use this to minimize issues with slippage (swapping with too much size)
-        uint256 wethPerBvm = router.getAmountOut(
-            1e18,
-            address(bvm),
+        // exercise
+        IoToken(_oToken).exercise(
+            _optionTokenAmount,
+            _paymentTokenAmount,
+            address(this)
+        );
+        uint256 underlyingReceived = underlying.balanceOf(address(this));
+
+        IRouter.route[] memory tokenToWeth = new IRouter.route[](1);
+        tokenToWeth[0] = IRouter.route(
+            address(underlying),
             address(weth),
             false
         );
-        uint256 minAmountOut = (bvmReceived *
-            wethPerBvm *
+
+        // use this to minimize issues with slippage (swapping with too much size)
+        uint256 wethPerToken = router.getAmountOut(
+            1e18,
+            address(underlying),
+            address(weth),
+            false
+        );
+        uint256 minAmountOut = (underlyingReceived *
+            wethPerToken *
             (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
 
-        // use our router to swap from BVM to WETH
+        // use our router to swap from underlying to WETH
         router.swapExactTokensForTokens(
-            bvmReceived,
+            underlyingReceived,
             minAmountOut,
-            bvmToWeth,
+            tokenToWeth,
             address(this),
             block.timestamp
         );
@@ -321,6 +331,17 @@ contract ExerciseHelperBVM is Ownable2Step {
     function _takeFees(uint256 _amount) internal {
         uint256 toSend = (_amount * fee) / MAX_BPS;
         _safeTransfer(address(weth), feeAddress, toSend);
+    }
+
+    // helper to approve new oTokens to spend WETH, etc. from this contract
+    function _checkAllowance(address _oToken) internal {
+        if (weth.allowance(address(this), _oToken) == 0) {
+            weth.approve(_oToken, type(uint256).max);
+
+            // approve router to spend underlying from this contract
+            IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
+            underlying.approve(address(router), type(uint256).max);
+        }
     }
 
     /**
@@ -338,7 +359,7 @@ contract ExerciseHelperBVM is Ownable2Step {
 
     /**
      * @notice
-     *  Update fee for oBMX -> WETH conversion.
+     *  Update fee for oToken -> WETH conversion.
      * @param _recipient Fee recipient address.
      * @param _newFee New fee, out of 10,000.
      */
