@@ -62,12 +62,14 @@ interface IBMX is IERC20 {
 
     function getAumInUsdg(bool maximise) external view returns (uint256);
 
+    function underlyingToken() external view returns (address);
+
     function lastAddedAt(address _account) external returns (uint256);
 
     function getPaymentTokenAmountForExerciseLp(
         uint256,
         uint256
-    ) external returns (uint256, uint256);
+    ) external view returns (uint256, uint256);
 
     function addLiquidity(
         address _token,

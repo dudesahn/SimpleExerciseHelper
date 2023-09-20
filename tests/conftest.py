@@ -460,9 +460,7 @@ if chain_used == 8453:
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
         router = screamsh.deploy(wBLTRouter)
-        #         router = Contract.from_explorer(
-        #             "0x1B6cCd9C1A1a1054B4e17f3482B101Ef18cB5cfA"
-        #         )  # v17
+        # router = Contract("0x3942108beB868664f012a6Caf2778d2f9e39F4Fb")  # v20
         yield router
 
     @pytest.fixture(scope="session")

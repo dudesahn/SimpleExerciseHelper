@@ -1,3 +1,4 @@
+import brownie
 from brownie import chain, Contract, interface, accounts
 import pytest
 
@@ -235,17 +236,30 @@ def test_eth_swaps(
     assert screamsh.balance() < before_eth
     print("✅  Swapped ether to BMX")
 
-    # approve our BMX, back to ETH
+    # approve our BMX, back to ETH (USDC will revert)
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
     bmx_to_usdc = [
         (bmx.address, w_blt.address, False),
         (w_blt.address, usdc.address, False),
     ]
+    bmx_to_weth = [
+        (bmx.address, w_blt.address, False),
+        (w_blt.address, weth.address, False),
+    ]
     before_eth = screamsh.balance()
     bmx_to_swap = bmx.balanceOf(screamsh)
     before = usdc.balanceOf(screamsh)
+    with brownie.reverts():
+        router.swapExactTokensForETH(
+            bmx_to_swap,
+            0,
+            bmx_to_usdc,
+            screamsh.address,
+            2**256 - 1,
+            {"from": screamsh},
+        )
     router.swapExactTokensForETH(
-        bmx_to_swap, 0, bmx_to_usdc, screamsh.address, 2**256 - 1, {"from": screamsh}
+        bmx_to_swap, 0, bmx_to_weth, screamsh.address, 2**256 - 1, {"from": screamsh}
     )
     assert usdc.balanceOf(screamsh) == before
     assert bmx.balanceOf(router) == 0
@@ -684,10 +698,8 @@ def test_options(
     # calculate wBLT needed for our oBMX
     to_exercise = 1e17
     discount = 35
-    output = router.quoteTokenNeededToExerciseLp(
-        weth, to_exercise, discount, {"from": screamsh}
-    )
-    weth_needed = output.return_value[1]
+    output = router.quoteTokenNeededToExerciseLp(obmx, weth, to_exercise, discount)
+    weth_needed = output[1]
     print(
         "WETH (safe) needed for LP exercising 1e17 oBMX:", weth_needed / 1e18
     )  # this should be around 0.00062499027
@@ -698,6 +710,7 @@ def test_options(
     before_weth = weth.balanceOf(screamsh)
 
     router.exerciseLpWithUnderlying(
+        obmx.address,
         weth.address,
         weth_needed,
         to_exercise,
@@ -750,10 +763,8 @@ def test_options_eth(
     # calculate wBLT needed for our oBMX
     to_exercise = 1e17
     discount = 35
-    output = router.quoteTokenNeededToExerciseLp(
-        weth, to_exercise, discount, {"from": screamsh}
-    )
-    weth_needed = output.return_value[1]
+    output = router.quoteTokenNeededToExerciseLp(obmx, weth, to_exercise, discount)
+    weth_needed = output[1]
     print(
         "ETH (safe) needed for LP exercising 1e17 oBMX:", weth_needed / 1e18
     )  # this should be around 0.00062499027
@@ -766,6 +777,7 @@ def test_options_eth(
     before_eth = screamsh.balance()
 
     router.exerciseLpWithUnderlyingETH(
+        obmx.address,
         weth_needed,
         to_exercise,
         discount,

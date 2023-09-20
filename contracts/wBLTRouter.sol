@@ -30,14 +30,9 @@ contract wBLTRouter is Ownable2Step {
     /// @notice The tokens currently approved for deposit to BLT.
     address[] public bltTokens;
 
-    // standard Morphex contracts
-    address internal constant bmx = 0x548f93779fBC992010C07467cBaf329DD5F059B7;
-
+    // contracts used for wBLT mint/burn
     VaultAPI internal constant wBLT =
         VaultAPI(0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A);
-
-    IBMX internal constant oBMX =
-        IBMX(0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713);
 
     IBMX internal constant sBLT =
         IBMX(0x64755939a80BC89E1D2d0f93A312908D348bC8dE);
@@ -62,7 +57,6 @@ contract wBLTRouter is Ownable2Step {
 
         // do approvals for wBLT
         sBLT.approve(address(wBLT), type(uint256).max);
-        wBLT.approve(address(oBMX), type(uint256).max);
 
         // update our allowances
         updateAllowances();
@@ -157,7 +151,7 @@ contract wBLTRouter is Ownable2Step {
 
     /**
      * @notice
-     *  Swap BMX or wBLT for ether.
+     *  Swap wBLT or our paired token for ether.
      * @param amountIn The amount of our first token to swap.
      * @param amountOutMin Minimum amount of ether we must receive.
      * @param routes Array of structs that we use for our swap path.
@@ -171,41 +165,55 @@ contract wBLTRouter is Ownable2Step {
         route[] calldata routes,
         address to,
         uint deadline
-    ) public ensure(deadline) returns (uint[] memory amounts) {
-        // tbh just do this manually, becuase realistically you're only using this to swap from wBLT or BMX
+    ) external ensure(deadline) returns (uint[] memory amounts) {
         amounts = getAmountsOut(amountIn, routes);
         require(
             amounts[amounts.length - 1] >= amountOutMin,
             "Router: INSUFFICIENT_OUTPUT_AMOUNT"
         );
+        require(
+            routes[routes.length - 1].to == address(weth),
+            "Router: END_ROUTE_IN_ETH_BOZO"
+        );
 
-        // if wBLT, just transfer it in
-        if (routes[0].from == address(wBLT)) {
+        // if our first pair is mint/burn of wBLT, transfer to the router
+        if (routes[0].from == address(wBLT) || routes[0].to == address(wBLT)) {
+            if (isBLTToken(routes[0].from) || isBLTToken(routes[0].to)) {
+                _safeTransferFrom(
+                    routes[0].from,
+                    msg.sender,
+                    address(this),
+                    amounts[0]
+                );
+            } else {
+                // if it's not wBLT AND an underlying, it's just a normal wBLT swap (likely w/ BMX)
+                _safeTransferFrom(
+                    routes[0].from,
+                    msg.sender,
+                    pairFor(routes[0].from, routes[0].to, routes[0].stable),
+                    amounts[0]
+                );
+            }
+        } else {
             _safeTransferFrom(
                 routes[0].from,
                 msg.sender,
-                address(this),
+                pairFor(routes[0].from, routes[0].to, routes[0].stable),
                 amounts[0]
             );
-        } else if (routes[0].from == bmx) {
-            address wBLTPair = 0xd272920B2b4eBeE362a887451EDBd6d68A76E507;
-            _safeTransferFrom(routes[0].from, msg.sender, wBLTPair, amounts[0]);
-
-            // swap directly on our pair, BMX -> wBLT and back to this router
-            IPair(wBLTPair).swap(amounts[1], 0, address(this), new bytes(0));
-        } else {
-            revert("Only BMX or wBLT to ETH");
         }
 
-        // wBLT -> WETH -> ETH
-        uint256 amountUnderlying = _withdrawFromWrappedBLT(address(weth));
+        _swap(amounts, routes, address(this));
+
+        // WETH -> ETH
+        uint256 amountUnderlying = weth.balanceOf(address(this));
         weth.withdraw(amountUnderlying);
         _safeTransferETH(to, amountUnderlying);
     }
 
     /**
      * @notice
-     *  Swap ETH for tokens, with special handling for BMX and wBLT.
+     *  Swap ETH for tokens, with special handling for wBLT pairs.
      * @param amountIn The amount of ether to swap.
      * @param amountOutMin Minimum amount of our final token we must receive.
      * @param routes Array of structs that we use for our swap path.
@@ -241,7 +249,7 @@ contract wBLTRouter is Ownable2Step {
 
     /**
      * @notice
-     *  Swap tokens for tokens, with special handling for BMX and wBLT.
+     *  Swap tokens for tokens, with special handling for wBLT pairs.
      * @param amountIn The amount of our first token to swap.
      * @param amountOutMin Minimum amount of our final token we must receive.
      * @param routes Array of structs that we use for our swap path.
@@ -587,7 +595,8 @@ contract wBLTRouter is Ownable2Step {
 
     /**
      * @notice
-     *  Exercise our oBMX options using one of wBLT's underlying tokens.
+     *  Exercise our oToken options using one of wBLT's underlying tokens.
+     * @param _oToken The option token we are exercising.
      * @param _tokenToUse Address of our desired wBLT underlying to use for exercising our option.
      * @param _amount The amount of our token to use to generate our wBLT for exercising.
      * @param _oTokenAmount The amount of option tokens to exercise.
@@ -597,23 +606,22 @@ contract wBLTRouter is Ownable2Step {
      * @return lpAmount Amount of our LP we generate.
      */
     function exerciseLpWithUnderlying(
+        address _oToken,
         address _tokenToUse,
         uint256 _amount,
         uint256 _oTokenAmount,
         uint256 _discount,
         uint256 _deadline
     ) external returns (uint256 paymentAmount, uint256 lpAmount) {
+        // first person does the approvals for everyone else, what a nice person!
+        _checkAllowance(_oToken);
+
         // transfer in our funds
         _safeTransferFrom(_tokenToUse, msg.sender, address(this), _amount);
-        _safeTransferFrom(
-            address(oBMX),
-            msg.sender,
-            address(this),
-            _oTokenAmount
-        );
+        _safeTransferFrom(_oToken, msg.sender, address(this), _oTokenAmount);
         uint256 wBltToLp = _depositToWrappedBLT(_tokenToUse);
 
-        (paymentAmount, lpAmount) = oBMX.exerciseLp(
+        (paymentAmount, lpAmount) = IBMX(_oToken).exerciseLp(
             _oTokenAmount,
             wBltToLp,
             msg.sender,
@@ -637,7 +645,8 @@ contract wBLTRouter is Ownable2Step {
 
     /**
      * @notice
-     *  Exercise our oBMX options using raw ether.
+     *  Exercise our oToken options using raw ether.
+     * @param _oToken The option token we are exercising.
      * @param _amount The amount of ETH to use to generate our wBLT for exercising.
      * @param _oTokenAmount The amount of option tokens to exercise.
      * @param _discount Our discount in exercising the option; this determines our lockup time.
@@ -646,30 +655,29 @@ contract wBLTRouter is Ownable2Step {
      * @return lpAmount Amount of our LP we generate.
      */
     function exerciseLpWithUnderlyingETH(
+        address _oToken,
         uint256 _amount,
         uint256 _oTokenAmount,
         uint256 _discount,
         uint256 _deadline
     ) external payable returns (uint256 paymentAmount, uint256 lpAmount) {
+        // first person does the approvals for everyone else, what a nice person!
+        _checkAllowance(_oToken);
+
         // deposit to weth, then everything is the same
         weth.deposit{value: _amount}();
         if (weth.balanceOf(address(this)) != _amount) {
             revert("WETH not sent");
         }
 
-        // pull oBMX
-        _safeTransferFrom(
-            address(oBMX),
-            msg.sender,
-            address(this),
-            _oTokenAmount
-        );
+        // pull oToken
+        _safeTransferFrom(_oToken, msg.sender, address(this), _oTokenAmount);
 
         // deposit our WETH to wBLT
         uint256 wBltToLp = _depositToWrappedBLT(address(weth));
 
         // exercise as normal
-        (paymentAmount, lpAmount) = oBMX.exerciseLp(
+        (paymentAmount, lpAmount) = IBMX(_oToken).exerciseLp(
             _oTokenAmount,
             wBltToLp,
             msg.sender,
@@ -690,27 +698,36 @@ contract wBLTRouter is Ownable2Step {
         }
     }
 
+    // helper to approve new oTokens to spend wBLT from this router
+    function _checkAllowance(address _token) internal {
+        if (wBLT.allowance(address(this), _token) == 0) {
+            wBLT.approve(_token, type(uint256).max);
+        }
+    }
+
     /**
      * @notice
      *  Check how much underlying (or ETH) we need to exercise to LP.
+     * @param _oToken The option token we are exercising.
      * @param _tokenToUse The token to deposit to wBLT.
-     * @param _oTokenAmount The amount of oBMX to exercise.
+     * @param _oTokenAmount The amount of oToken to exercise.
      * @param _discount Our discount in exercising the option; this determines our lockup time.
      * @return atomicAmount The amount of token needed if exercising atomically from this calculation.
      * @return safeAmount Add an extra 0.01% to allow for per-second wBLT share price increases.
      */
     function quoteTokenNeededToExerciseLp(
+        address _oToken,
         address _tokenToUse,
         uint256 _oTokenAmount,
         uint256 _discount
-    ) external returns (uint256 atomicAmount, uint256 safeAmount) {
+    ) external view returns (uint256 atomicAmount, uint256 safeAmount) {
         // calculate the exact amount we need
-        (uint256 amountNeeded, uint256 amount2) = oBMX
+        (uint256 amountNeeded, uint256 amount2) = IBMX(_oToken)
             .getPaymentTokenAmountForExerciseLp(_oTokenAmount, _discount);
 
         amountNeeded += amount2;
 
-        uint256 atomicAmount = quoteMintAmountBLT(_tokenToUse, amountNeeded);
+        atomicAmount = quoteMintAmountBLT(_tokenToUse, amountNeeded);
 
         // give ourselves 0.01% of space for wBLT share price rising
         safeAmount = (atomicAmount * 10_001) / 10_000;
