@@ -455,12 +455,24 @@ def destination_strategy():
     yield interface.ICurveStrategy045("0x49D8b010243a4aD4B1dF53E3B3a2986861A0C8c3")
 
 
+@pytest.fixture(
+    params=[
+        True,
+        False,
+    ],
+    ids=["receive_bmx", "receive_weth"],
+    scope="function",
+)
+def receive_underlying(request):
+    yield request.param
+
+
 if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
-        router = screamsh.deploy(wBLTRouter)
-        # router = Contract("0x3942108beB868664f012a6Caf2778d2f9e39F4Fb")  # v20
+        # router = screamsh.deploy(wBLTRouter)
+        router = Contract("0x85237cc566926eCfDD1edBf2a38dA7608B2246C0")  # v21, prod
         yield router
 
     @pytest.fixture(scope="session")
