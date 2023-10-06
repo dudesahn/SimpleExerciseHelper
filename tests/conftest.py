@@ -471,8 +471,8 @@ if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
-        # router = screamsh.deploy(wBLTRouter)
-        router = Contract("0x85237cc566926eCfDD1edBf2a38dA7608B2246C0")  # v21, prod
+        router = screamsh.deploy(wBLTRouter)
+        # router = Contract("0x85237cc566926eCfDD1edBf2a38dA7608B2246C0")  # v21, prod
         yield router
 
     @pytest.fixture(scope="session")

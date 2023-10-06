@@ -26,13 +26,30 @@ def test_basic_swaps(
     print("\n🥸 Mint wBLT with 0.002 ETH", "{:,.18f}".format(to_mint / 1e18))
 
     # how much weth do we need for that same amount of WBLT?
-    weth_needed = router.quoteMintAmountBLT(weth, to_mint, {"from": screamsh})
+    weth_needed = router.quoteMintAmountBLT(weth, to_mint)
     error = abs(weth_needed - weth_to_mint) / weth_to_mint * 100
     print("Error:", "{:,.10f}%".format(error))
 
     print(
         "WETH needed for",
         "{:,.18f}".format(to_mint / 1e18),
+        "wBLT",
+        "{:,.18f}".format(weth_needed / 1e18),
+    )
+
+    # check how much wBLT we need to receive a given amount
+    weth_to_receive = weth_to_mint
+    to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
+    print("\n🥸 Redeem wBLT for 0.002 ETH", "{:,.18f}".format(to_redeem / 1e18))
+
+    # how much weth do we get for redeeming that amount of wBLT
+    weth_needed = router.getRedeemAmountWrappedBLT(weth, to_redeem)
+    error = abs(weth_needed - weth_to_receive) / weth_to_receive * 100
+    print("Error:", "{:,.10f}%".format(error))
+
+    print(
+        "WETH received for",
+        "{:,.18f}".format(to_redeem / 1e18),
         "wBLT",
         "{:,.18f}".format(weth_needed / 1e18),
     )

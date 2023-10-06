@@ -26,6 +26,8 @@ contract wBLTRouter is Ownable2Step {
         IWETH(0x4200000000000000000000000000000000000006);
     uint internal constant MINIMUM_LIQUIDITY = 10 ** 3;
     bytes32 immutable pairCodeHash;
+    uint256 immutable PRICE_PRECISION;
+    uint256 immutable BASIS_POINTS_DIVISOR;
 
     /// @notice The tokens currently approved for deposit to BLT.
     address[] public bltTokens;
@@ -60,6 +62,9 @@ contract wBLTRouter is Ownable2Step {
 
         // update our allowances
         updateAllowances();
+
+        PRICE_PRECISION = morphexVault.PRICE_PRECISION();
+        BASIS_POINTS_DIVISOR = morphexVault.BASIS_POINTS_DIVISOR();
     }
 
     modifier ensure(uint deadline) {
@@ -747,12 +752,14 @@ contract wBLTRouter is Ownable2Step {
         require(_amount > 0, "invalid _amount");
 
         // calculate aum before buyUSDG
-        uint256 aumInUsdg = bltManager.getAumInUsdg(true);
-        uint256 bltSupply = sBLT.totalSupply();
-
+        (uint256 aumInUsdg, uint256 bltSupply) = getBltInfo(true);
         uint256 price = morphexVault.getMinPrice(_token);
 
-        uint256 usdgAmount = (_amount * price) / morphexVault.PRICE_PRECISION();
+        // save some gas
+        uint256 _precision = PRICE_PRECISION;
+        uint256 _divisor = BASIS_POINTS_DIVISOR;
+
+        uint256 usdgAmount = (_amount * price) / _precision;
         usdgAmount = morphexVault.adjustForDecimals(
             usdgAmount,
             _token,
@@ -763,12 +770,10 @@ contract wBLTRouter is Ownable2Step {
             _token,
             usdgAmount
         );
-        uint256 afterFeeAmount = (_amount *
-            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
-            morphexVault.BASIS_POINTS_DIVISOR();
+        uint256 afterFeeAmount = (_amount * (_divisor - feeBasisPoints)) /
+            _divisor;
 
-        uint256 usdgMintAmount = (afterFeeAmount * price) /
-            morphexVault.PRICE_PRECISION();
+        uint256 usdgMintAmount = (afterFeeAmount * price) / _precision;
         usdgMintAmount = morphexVault.adjustForDecimals(
             usdgMintAmount,
             _token,
@@ -802,14 +807,12 @@ contract wBLTRouter is Ownable2Step {
         _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount);
 
         // convert our BLT to bUSD (USDG)
-        uint256 aumInUsdg = bltManager.getAumInUsdg(false);
-        uint256 bltSupply = sBLT.totalSupply();
+        (uint256 aumInUsdg, uint256 bltSupply) = getBltInfo(false);
         uint256 usdgAmount = (_amount * aumInUsdg) / bltSupply;
 
         // convert USDG to tokenOut amounts, adjust for decimals
         uint256 price = morphexVault.getMaxPrice(_tokenOut);
-        uint256 redeemAmount = (usdgAmount * morphexVault.PRICE_PRECISION()) /
-            price;
+        uint256 redeemAmount = (usdgAmount * PRICE_PRECISION) / price;
         redeemAmount = morphexVault.adjustForDecimals(
             redeemAmount,
             morphexVault.usdg(),
@@ -821,17 +824,68 @@ contract wBLTRouter is Ownable2Step {
             _tokenOut,
             usdgAmount
         );
+
+        // save some gas
+        uint256 _divisor = BASIS_POINTS_DIVISOR;
         underlyingReceived =
-            (redeemAmount *
-                (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)) /
-            morphexVault.BASIS_POINTS_DIVISOR();
+            (redeemAmount * (_divisor - feeBasisPoints)) /
+            _divisor;
+    }
+
+    /**
+     * @notice
+     *  Check how much wBLT we need to redeem for a given amount of underlying.
+     * @dev Since this uses maxPrice, we potentially overestimate wBLT
+     *  needed. To be cautious of rounding down, use ceiling division.
+     * @param _underlyingToken The token to withdraw from wBLT.
+     * @param _amount The amount of underlying we need.
+     * @return wBLTAmount Amount of wBLT needed.
+     */
+    function quoteRedeemAmountBLT(
+        address _underlyingToken,
+        uint256 _amount
+    ) external view returns (uint256 wBLTAmount) {
+        require(_amount > 0, "invalid _amount");
+
+        // convert our underlying amount to USDG
+        uint256 underlyingPrice = morphexVault.getMaxPrice(_underlyingToken);
+        uint256 usdgNeeded = Math.ceilDiv(
+            (_amount * underlyingPrice),
+            PRICE_PRECISION
+        );
+
+        // convert USDG needed to BLT
+        (uint256 aumInUsdg, uint256 bltSupply) = getBltInfo(false);
+        uint256 bltAmount = Math.ceilDiv((usdgNeeded * bltSupply), aumInUsdg);
+
+        bltAmount = morphexVault.adjustForDecimals(
+            bltAmount,
+            morphexVault.usdg(),
+            _underlyingToken
+        );
+
+        // save some gas
+        uint256 _divisor = BASIS_POINTS_DIVISOR;
+
+        // adjust for fees
+        uint256 feeBasisPoints = vaultUtils.getSellUsdgFeeBasisPoints(
+            _underlyingToken,
+            usdgNeeded
+        );
+        bltAmount = Math.ceilDiv(
+            (bltAmount * _divisor),
+            (_divisor - feeBasisPoints)
+        );
+
+        // convert our BLT to wBLT
+        wBLTAmount = shareValueHelper.amountToShares(address(wBLT), bltAmount);
     }
 
     /**
      * @notice
      *  Check how much underlying we need to mint a given amount of wBLT.
-     * @dev Since this uses minPrice, we likely overestimate underlying
-     *  needed. To be cautious of rounding down, add 1 wei to each place we divide.
+     * @dev Since this uses minPrice, we potentially overestimate underlying
+     *  needed. To be cautious of rounding down, use ceiling division.
      * @param _underlyingToken The token to deposit to wBLT.
      * @param _amount The amount of wBLT we need.
      * @return startingTokenAmount Amount of underlying token needed.
@@ -847,15 +901,14 @@ contract wBLTRouter is Ownable2Step {
 
         // convert our BLT to bUSD (USDG)
         // maximize here to use max BLT price, to make sure we get enough BLT out
-        uint256 aumInUsdg = bltManager.getAumInUsdg(true);
-        uint256 bltSupply = sBLT.totalSupply();
+        (uint256 aumInUsdg, uint256 bltSupply) = getBltInfo(true);
         uint256 usdgAmount = Math.ceilDiv((_amount * aumInUsdg), bltSupply);
 
         // price is returned in 1e30 from vault
         uint256 tokenPrice = morphexVault.getMinPrice(_underlyingToken);
 
         startingTokenAmount = Math.ceilDiv(
-            usdgAmount * morphexVault.PRICE_PRECISION(),
+            usdgAmount * PRICE_PRECISION,
             tokenPrice
         );
 
@@ -871,10 +924,21 @@ contract wBLTRouter is Ownable2Step {
             usdgAmount
         );
 
+        // save some gas
+        uint256 _divisor = BASIS_POINTS_DIVISOR;
+
         startingTokenAmount = Math.ceilDiv(
-            startingTokenAmount * morphexVault.BASIS_POINTS_DIVISOR(),
-            (morphexVault.BASIS_POINTS_DIVISOR() - feeBasisPoints)
+            startingTokenAmount * _divisor,
+            (_divisor - feeBasisPoints)
         );
+    }
+
+    // standard data needed to calculate BLT pricing
+    function getBltInfo(
+        bool _maximize
+    ) internal view returns (uint256 aumInUsdg, uint256 bltSupply) {
+        bltSupply = sBLT.totalSupply();
+        aumInUsdg = bltManager.getAumInUsdg(_maximize);
     }
 
     // check if a token is in BLT
@@ -1154,10 +1218,6 @@ contract wBLTRouter is Ownable2Step {
         if (IPairFactory(factory).isPair(pair)) {
             amount = IPair(pair).getAmountOut(amountIn, tokenIn);
         }
-    }
-
-    function isPair(address pair) external view returns (bool) {
-        return IPairFactory(factory).isPair(pair);
     }
 
     // given some amount of an asset and pair reserves, returns an equivalent amount of the other asset
