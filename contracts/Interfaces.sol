@@ -666,11 +666,13 @@ interface IWETH is IERC20 {
 interface IShareHelper {
     function sharesToAmount(
         address vault,
-        uint shares
+        uint shares,
+        bool useCeiling
     ) external view returns (uint);
 
     function amountToShares(
         address vault,
-        uint amount
+        uint amount,
+        bool useCeiling
     ) external view returns (uint);
 }

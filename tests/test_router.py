@@ -16,43 +16,68 @@ def test_basic_swaps(
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
     glp_manager = Contract("0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5")
     s_glp = Contract("0x64755939a80BC89E1D2d0f93A312908D348bC8dE")
-    weth_to_mint = 2e15
+    weth_to_deposit = 2e15
     s_glp.approve(w_blt, 2**256 - 1, {"from": screamsh})
     if s_glp.balanceOf(screamsh) > 0:
         w_blt.deposit({"from": screamsh})
 
     # test views
-    to_mint = router.getMintAmountWrappedBLT(weth, weth_to_mint)
-    print("\n🥸 Mint wBLT with 0.002 ETH", "{:,.18f}".format(to_mint / 1e18))
+    to_mint = router.getMintAmountWrappedBLT(weth, weth_to_deposit)
+    print(
+        "\n🥸 We minted this much wBLT with 0.002 ETH", "{:,.18f}".format(to_mint / 1e18)
+    )
 
     # how much weth do we need for that same amount of WBLT?
     weth_needed = router.quoteMintAmountBLT(weth, to_mint)
-    error = abs(weth_needed - weth_to_mint) / weth_to_mint * 100
+    error = abs(weth_needed - weth_to_deposit) / weth_to_deposit * 100
     print("Error:", "{:,.10f}%".format(error))
 
     print(
+        "{:,.18f}".format(weth_needed / 1e18),
         "WETH needed for",
         "{:,.18f}".format(to_mint / 1e18),
         "wBLT",
-        "{:,.18f}".format(weth_needed / 1e18),
     )
 
     # check how much wBLT we need to receive a given amount
-    weth_to_receive = weth_to_mint
+    weth_to_receive = 3786844000000000
     to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
-    print("\n🥸 Redeem wBLT for 0.002 ETH", "{:,.18f}".format(to_redeem / 1e18))
+    print(
+        "\n🤔 We need to redeem this much wBLT to receive our random ETH amount",
+        "{:,.18f}".format(to_redeem / 1e18),
+    )
 
     # how much weth do we get for redeeming that amount of wBLT
-    weth_needed = router.getRedeemAmountWrappedBLT(weth, to_redeem)
-    error = abs(weth_needed - weth_to_receive) / weth_to_receive * 100
+    weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem)
+    error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
     print("Error:", "{:,.10f}%".format(error))
+
+    to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
+    print("\n🤔 Redeem wBLT for output ETH", "{:,.18f}".format(to_redeem_two / 1e18))
+
+    print("COMPARE\n", weth_to_receive, "\n", weth_out)
 
     print(
         "WETH received for",
         "{:,.18f}".format(to_redeem / 1e18),
         "wBLT",
-        "{:,.18f}".format(weth_needed / 1e18),
+        "{:,.18f}".format(weth_out / 1e18),
     )
+
+    # test redeeming our amount of wBLT
+    w_blt.approve(router, 2**256 - 1, {"from": screamsh})
+    wblt_to_weth = [
+        (w_blt.address, weth.address, False),
+    ]
+    before = weth.balanceOf(screamsh)
+    router.swapExactTokensForTokens(
+        to_redeem, 0, wblt_to_weth, screamsh, 2**256 - 1, {"from": screamsh}
+    )
+    received_swap = weth.balanceOf(screamsh) - before
+    print("Real output:", received_swap)
+    chain.undo()
+
+    return
 
     # swap for wBLT, compare it to minting directly on morphex
     # mint via our router

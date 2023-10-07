@@ -52,7 +52,7 @@ contract wBLTRouter is Ownable2Step {
         IBMX(0xec31c83C5689C66cb77DdB5378852F3707022039);
 
     IShareHelper internal constant shareValueHelper =
-        IShareHelper(0x7EF2dBc5B28A3BdE7162442f95C691Be7F820867);
+        IShareHelper(0x4d2ED72285206D2b4b59CDA21ED0a979ad1F497f);
 
     constructor() {
         pairCodeHash = IPairFactory(factory).pairCodeHash();
@@ -72,8 +72,9 @@ contract wBLTRouter is Ownable2Step {
         _;
     }
 
+    // only accept ETH via fallback from the WETH contract
     receive() external payable {
-        assert(msg.sender == address(weth)); // only accept ETH via fallback from the WETH contract
+        assert(msg.sender == address(weth));
     }
 
     /* ========== NEW/MODIFIED FUNCTIONS ========== */
@@ -139,7 +140,8 @@ contract wBLTRouter is Ownable2Step {
                 }
             }
 
-            // if it's not depositing or withdrawing from wBLT, we can treat it like normal
+            // if it's not depositing or withdrawing from wBLT, we can treat it like
+            //  normal
             address pair = pairFor(
                 routes[i].from,
                 routes[i].to,
@@ -191,7 +193,8 @@ contract wBLTRouter is Ownable2Step {
                     amounts[0]
                 );
             } else {
-                // if it's not wBLT AND an underlying, it's just a normal wBLT swap (likely w/ BMX)
+                // if it's not wBLT AND an underlying, it's just a normal wBLT swap
+                //  (likely w/ BMX)
                 _safeTransferFrom(
                     routes[0].from,
                     msg.sender,
@@ -285,7 +288,8 @@ contract wBLTRouter is Ownable2Step {
                     amounts[0]
                 );
             } else {
-                // if it's not wBLT AND an underlying, it's just a normal wBLT swap (likely w/ BMX)
+                // if it's not wBLT AND an underlying, it's just a normal wBLT swap
+                //  (likely w/ BMX)
                 _safeTransferFrom(
                     routes[0].from,
                     msg.sender,
@@ -331,7 +335,7 @@ contract wBLTRouter is Ownable2Step {
                 if (isBLTToken(routes[i].to)) {
                     received = _withdrawFromWrappedBLT(routes[i].to);
                     if (i < (routes.length - 1)) {
-                        // if we're not done, directly send our underlying to the next pair
+                        // if we're not done, send our underlying to the next pair
                         directSend = true;
                     } else {
                         // if this is the last token, send to our _to address
@@ -363,7 +367,8 @@ contract wBLTRouter is Ownable2Step {
                 (isBLTToken(routes[i + 1].to) &&
                     routes[i + 1].from == address(wBLT))
             ) {
-                // if we're about to go underlying -> wBLT or wBLT -> underlying, then make sure we get our needed token back to the router
+                // if we're about to go underlying -> wBLT or wBLT -> underlying, then
+                //  make sure we get our needed token back to the router
                 to = address(this);
             } else {
                 // normal mid-route swap
@@ -391,8 +396,10 @@ contract wBLTRouter is Ownable2Step {
      * @param underlyingToken The token to zap into wBLT for creating the LP.
      * @param amountToZapIn Amount of underlying token to deposit to wBLT.
      * @param token The token to pair with wBLT for the LP.
-     * @param amountWrappedBLTDesired The amount of wBLT we would like to deposit to the LP.
-     * @param amountTokenDesired The amount of other token we would like to deposit to the LP.
+     * @param amountWrappedBLTDesired The amount of wBLT we would like to deposit to the
+     *  LP.
+     * @param amountTokenDesired The amount of other token we would like to deposit to the
+     *  LP.
      * @param amountWrappedBLTMin The minimum amount of wBLT we will accept in the LP.
      * @param amountTokenMin The minimum amount of other token we will accept in the LP.
      * @param to Address that will receive the LP token.
@@ -420,7 +427,8 @@ contract wBLTRouter is Ownable2Step {
             amountToZapIn
         );
 
-        // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
+        // first, deposit the underlying to wBLT, deposit function checks that underlying
+        //  is actually in the LP
         amountWrappedBLTDesired = _depositToWrappedBLT(underlyingToken);
 
         (amountWrappedBLT, amountToken) = _addLiquidity(
@@ -434,7 +442,8 @@ contract wBLTRouter is Ownable2Step {
         );
         address pair = pairFor(address(wBLT), token, false);
 
-        // wBLT will already be in the router, so transfer for it. transferFrom for other token.
+        // wBLT will already be in the router, so transfer for it. transferFrom for other
+        //  token.
         _safeTransfer(address(wBLT), pair, amountWrappedBLT);
         _safeTransferFrom(token, msg.sender, pair, amountToken);
 
@@ -451,8 +460,10 @@ contract wBLTRouter is Ownable2Step {
      *  Add liquidity for wBLT-TOKEN with ether.
      * @param amountToZapIn Amount of ether to deposit to wBLT.
      * @param token The token to pair with wBLT for the LP.
-     * @param amountWrappedBLTDesired The amount of wBLT we would like to deposit to the LP.
-     * @param amountTokenDesired The amount of other token we would like to deposit to the LP.
+     * @param amountWrappedBLTDesired The amount of wBLT we would like to deposit to the
+     *  LP.
+     * @param amountTokenDesired The amount of other token we would like to deposit to the
+     *  LP.
      * @param amountWrappedBLTMin The minimum amount of wBLT we will accept in the LP.
      * @param amountTokenMin The minimum amount of other token we will accept in the LP.
      * @param to Address that will receive the LP token.
@@ -479,7 +490,8 @@ contract wBLTRouter is Ownable2Step {
             revert("WETH not sent");
         }
 
-        // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
+        // first, deposit the underlying to wBLT, deposit function checks that underlying
+        //  is actually in the LP
         amountWrappedBLTDesired = _depositToWrappedBLT(address(weth));
 
         (amountWrappedBLT, amountToken) = _addLiquidity(
@@ -493,7 +505,8 @@ contract wBLTRouter is Ownable2Step {
         );
         address pair = pairFor(address(wBLT), token, false);
 
-        // wBLT will already be in the router, so transfer for it. transferFrom for other token.
+        // wBLT will already be in the router, so transfer for it. transferFrom for other
+        //  token.
         _safeTransfer(address(wBLT), pair, amountWrappedBLT);
         _safeTransferFrom(token, msg.sender, pair, amountToken);
         liquidity = IPair(pair).mint(to);
@@ -512,7 +525,8 @@ contract wBLTRouter is Ownable2Step {
      * @param token The other token paired with wBLT in our LP.
      * @param liquidity The amount of LP tokens we want to burn.
      * @param amountWrappedBLTMin The minimum amount of wBLT we will accept from the LP.
-     * @param amountTokenMin The minimum amount of our other token we will accept from the LP.
+     * @param amountTokenMin The minimum amount of our other token we will accept from the
+     *  LP.
      * @param to Address that will receive the LP token.
      * @return amountWrappedBLT Amount of wBLT actually received from the LP.
      * @return amountToken Amount of other token actually received from the LP.
@@ -533,8 +547,10 @@ contract wBLTRouter is Ownable2Step {
             uint256 amountUnderlying
         )
     {
-        address pair = pairFor(address(wBLT), token, false); // stable is dumb with wBLT
-        require(IPair(pair).transferFrom(msg.sender, pair, liquidity)); // send liquidity to pair
+        // stable is dumb with wBLT
+        address pair = pairFor(address(wBLT), token, false);
+        // send liquidity to pair
+        require(IPair(pair).transferFrom(msg.sender, pair, liquidity));
         (uint amount0, uint amount1) = IPair(pair).burn(address(this));
         (address token0, ) = sortTokens(address(wBLT), token);
         (amountWrappedBLT, amountToken) = address(wBLT) == token0
@@ -558,7 +574,8 @@ contract wBLTRouter is Ownable2Step {
      * @param token The other token paired with wBLT in our LP.
      * @param liquidity The amount of LP tokens we want to burn.
      * @param amountWrappedBLTMin The minimum amount of wBLT we will accept from the LP.
-     * @param amountTokenMin The minimum amount of our other token we will accept from the LP.
+     * @param amountTokenMin The minimum amount of our other token we will accept from the
+     *  LP.
      * @param to Address that will receive the LP token.
      * @return amountWrappedBLT Amount of wBLT actually received from the LP.
      * @return amountToken Amount of other token actually received from the LP.
@@ -578,8 +595,10 @@ contract wBLTRouter is Ownable2Step {
             uint256 amountUnderlying
         )
     {
-        address pair = pairFor(address(wBLT), token, false); // stable is dumb with wBLT
-        require(IPair(pair).transferFrom(msg.sender, pair, liquidity)); // send liquidity to pair
+        // stable is dumb with wBLT
+        address pair = pairFor(address(wBLT), token, false);
+        // send liquidity to pair
+        require(IPair(pair).transferFrom(msg.sender, pair, liquidity));
         (uint amount0, uint amount1) = IPair(pair).burn(address(this));
         (address token0, ) = sortTokens(address(wBLT), token);
         (amountWrappedBLT, amountToken) = address(wBLT) == token0
@@ -602,10 +621,12 @@ contract wBLTRouter is Ownable2Step {
      * @notice
      *  Exercise our oToken options using one of wBLT's underlying tokens.
      * @param _oToken The option token we are exercising.
-     * @param _tokenToUse Address of our desired wBLT underlying to use for exercising our option.
+     * @param _tokenToUse Address of our desired wBLT underlying to use for exercising
+     *  our option.
      * @param _amount The amount of our token to use to generate our wBLT for exercising.
      * @param _oTokenAmount The amount of option tokens to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
+     * @param _discount Our discount in exercising the option; this determines our lockup
+     *  time.
      * @param _deadline Deadline for transaction to complete.
      * @return paymentAmount How much wBLT we spend to exercise.
      * @return lpAmount Amount of our LP we generate.
@@ -654,7 +675,8 @@ contract wBLTRouter is Ownable2Step {
      * @param _oToken The option token we are exercising.
      * @param _amount The amount of ETH to use to generate our wBLT for exercising.
      * @param _oTokenAmount The amount of option tokens to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
+     * @param _discount Our discount in exercising the option; this determines our lockup
+     *  time.
      * @param _deadline Deadline for transaction to complete.
      * @return paymentAmount How much wBLT we spend to exercise.
      * @return lpAmount Amount of our LP we generate.
@@ -716,9 +738,12 @@ contract wBLTRouter is Ownable2Step {
      * @param _oToken The option token we are exercising.
      * @param _tokenToUse The token to deposit to wBLT.
      * @param _oTokenAmount The amount of oToken to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
-     * @return atomicAmount The amount of token needed if exercising atomically from this calculation.
-     * @return safeAmount Add an extra 0.01% to allow for per-second wBLT share price increases.
+     * @param _discount Our discount in exercising the option; this determines our lockup
+     *  time.
+     * @return atomicAmount The amount of token needed if exercising atomically from this
+     *  calculation.
+     * @return safeAmount Add an extra 0.01% to allow for per-second wBLT share price
+     *  increases.
      */
     function quoteTokenNeededToExerciseLp(
         address _oToken,
@@ -741,6 +766,7 @@ contract wBLTRouter is Ownable2Step {
     /**
      * @notice
      *  Check how much wBLT we get from a given amount of underlying.
+     * @dev Since this uses minPrice, we likely underestimate wBLT received.
      * @param _token The token to deposit to wBLT.
      * @param _amount The amount of the token to deposit.
      * @return wrappedBLTMintAmount Amount of wBLT received.
@@ -786,13 +812,15 @@ contract wBLTRouter is Ownable2Step {
         // convert our BLT amount to wBLT
         wrappedBLTMintAmount = shareValueHelper.amountToShares(
             address(wBLT),
-            BLTMintAmount
+            BLTMintAmount,
+            false
         );
     }
 
     /**
      * @notice
      *  Check how much underlying we get from redeeming a given amount of wBLT.
+     * @dev Since this uses maxPrice, we likely underestimate underlying received.
      * @param _tokenOut The token to withdraw from wBLT.
      * @param _amount The amount of wBLT to burn.
      * @return underlyingReceived Amount of underlying token received.
@@ -804,7 +832,11 @@ contract wBLTRouter is Ownable2Step {
         require(_amount > 0, "invalid _amount");
 
         // convert our wBLT amount to BLT
-        _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount);
+        _amount = shareValueHelper.sharesToAmount(
+            address(wBLT),
+            _amount,
+            false
+        );
 
         // convert our BLT to bUSD (USDG)
         (uint256 aumInUsdg, uint256 bltSupply) = getBltInfo(false);
@@ -835,7 +867,7 @@ contract wBLTRouter is Ownable2Step {
     /**
      * @notice
      *  Check how much wBLT we need to redeem for a given amount of underlying.
-     * @dev Since this uses maxPrice, we potentially overestimate wBLT
+     * @dev Since this uses maxPrice, we likely overestimate wBLT
      *  needed. To be cautious of rounding down, use ceiling division.
      * @param _underlyingToken The token to withdraw from wBLT.
      * @param _amount The amount of underlying we need.
@@ -878,13 +910,17 @@ contract wBLTRouter is Ownable2Step {
         );
 
         // convert our BLT to wBLT
-        wBLTAmount = shareValueHelper.amountToShares(address(wBLT), bltAmount);
+        wBLTAmount = shareValueHelper.amountToShares(
+            address(wBLT),
+            bltAmount,
+            true
+        );
     }
 
     /**
      * @notice
      *  Check how much underlying we need to mint a given amount of wBLT.
-     * @dev Since this uses minPrice, we potentially overestimate underlying
+     * @dev Since this uses minPrice, we likely overestimate underlying
      *  needed. To be cautious of rounding down, use ceiling division.
      * @param _underlyingToken The token to deposit to wBLT.
      * @param _amount The amount of wBLT we need.
@@ -897,7 +933,7 @@ contract wBLTRouter is Ownable2Step {
         require(_amount > 0, "invalid _amount");
 
         // convert our wBLT amount to BLT
-        _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount);
+        _amount = shareValueHelper.sharesToAmount(address(wBLT), _amount, true);
 
         // convert our BLT to bUSD (USDG)
         // maximize here to use max BLT price, to make sure we get enough BLT out
@@ -1078,7 +1114,8 @@ contract wBLTRouter is Ownable2Step {
                 );
             }
         }
-        // based on the amount of wBLT, calculate how much of our underlying token we need to zap in
+        // based on the amount of wBLT, calculate how much of our underlying token we
+        //  need to zap in
         amountUnderlying = quoteMintAmountBLT(
             underlyingToken,
             amountWrappedBLT
@@ -1092,7 +1129,8 @@ contract wBLTRouter is Ownable2Step {
      * @param token The token paired with wBLT.
      * @param liquidity The amount of wBLT LP to burn.
      * @return amountUnderlying Amount of underlying token received.
-     * @return amountWrappedBLT Amount of wBLT token received before being converted to underlying.
+     * @return amountWrappedBLT Amount of wBLT token received before being converted to
+     *  underlying.
      * @return amountToken Amount of other token received.
      */
     function quoteRemoveLiquidityUnderlying(
@@ -1122,8 +1160,11 @@ contract wBLTRouter is Ownable2Step {
         );
         uint _totalSupply = IERC20(_pair).totalSupply();
 
-        amountWrappedBLT = (liquidity * reserveA) / _totalSupply; // using balances ensures pro-rata distribution
-        amountToken = (liquidity * reserveB) / _totalSupply; // using balances ensures pro-rata distribution
+        // using balances ensures pro-rata distribution
+        amountWrappedBLT = (liquidity * reserveA) / _totalSupply;
+
+        // using balances ensures pro-rata distribution
+        amountToken = (liquidity * reserveB) / _totalSupply;
 
         // simulate zapping out of wBLT to the selected underlying
         amountUnderlying = getRedeemAmountWrappedBLT(
@@ -1220,7 +1261,8 @@ contract wBLTRouter is Ownable2Step {
         }
     }
 
-    // given some amount of an asset and pair reserves, returns an equivalent amount of the other asset
+    // given some amount of an asset and pair reserves, returns an equivalent amount of
+    //  the other asset
     function quoteLiquidity(
         uint amountA,
         uint reserveA,
@@ -1249,8 +1291,10 @@ contract wBLTRouter is Ownable2Step {
         }
 
         // desired is the amount desired to be deposited for each token
-        // optimal of one asset is the amount that is equal in value to our desired of the other asset
-        // so, if our optimal is less than our min, we have an issue and pricing is likely off
+        // optimal of one asset is the amount that is equal in value to our desired of the
+        //  other asset
+        // so, if our optimal is less than our min, we have an issue and pricing is likely
+        //  off
         (uint reserveA, uint reserveB) = getReserves(tokenA, tokenB, stable);
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
