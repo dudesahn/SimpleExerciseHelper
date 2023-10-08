@@ -2,31 +2,25 @@ from brownie import config, Contract, ZERO_ADDRESS, chain, interface, accounts
 import pytest
 
 
-def test_bvm_exercise_helper(
-    obvm,
-    bvm_exercise_helper,
-    weth,
-    bvm,
-    receive_underlying,
+def test_fvm_exercise_helper(
+    ofvm, fvm_exercise_helper, wftm, fvm, receive_underlying, ofvm_whale, gauge
 ):
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
-    obvm_before = obvm.balanceOf(obvm_whale)
-    weth_before = weth.balanceOf(obvm_whale)
-    bvm_before = bvm.balanceOf(obvm_whale)
+    ofvm_before = ofvm.balanceOf(ofvm_whale)
+    wftm_before = wftm.balanceOf(ofvm_whale)
+    fvm_before = fvm.balanceOf(ofvm_whale)
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
     profit_slippage = 800  # in BPS
     swap_slippage = 50
 
-    obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+    ofvm.approve(fvm_exercise_helper, 2**256 - 1, {"from": ofvm_whale})
+    fee_before = wftm.balanceOf(fvm_exercise_helper.feeAddress())
 
     if receive_underlying:
-        result = bvm_exercise_helper.quoteExerciseToUnderlying(obvm, to_exercise, 0)
+        result = fvm_exercise_helper.quoteExerciseToUnderlying(ofvm, to_exercise, 0)
     else:
-        result = bvm_exercise_helper.quoteExerciseProfit(obvm, to_exercise, 0)
+        result = fvm_exercise_helper.quoteExerciseProfit(ofvm, to_exercise, 0)
 
     # use our preset slippage and amount
     print("Result w/ zero slippage", result.dict())
@@ -35,62 +29,62 @@ def test_bvm_exercise_helper(
     ]
     print("Slippage (manually calculated):", "{:,.2f}%".format(real_slippage * 100))
 
-    bvm_exercise_helper.exercise(
-        obvm,
+    fvm_exercise_helper.exercise(
+        ofvm,
         to_exercise,
         receive_underlying,
         profit_slippage,
         swap_slippage,
-        {"from": obvm_whale},
+        {"from": ofvm_whale},
     )
 
     if receive_underlying:
-        assert bvm_before < bvm.balanceOf(obvm_whale)
-        profit = bvm.balanceOf(obvm_whale) - bvm_before
+        assert fvm_before < fvm.balanceOf(ofvm_whale)
+        profit = fvm.balanceOf(ofvm_whale) - fvm_before
     else:
-        assert weth_before < weth.balanceOf(obvm_whale)
-        profit = weth.balanceOf(obvm_whale) - weth_before
+        assert wftm_before < wftm.balanceOf(ofvm_whale)
+        profit = wftm.balanceOf(ofvm_whale) - wftm_before
 
-    assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
-    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
+    assert ofvm.balanceOf(ofvm_whale) == ofvm_before - to_exercise
+    fees = wftm.balanceOf(fvm_exercise_helper.feeAddress()) - fee_before
 
-    assert bvm.balanceOf(bvm_exercise_helper) == 0
-    assert weth.balanceOf(bvm_exercise_helper) == 0
-    assert obvm.balanceOf(bvm_exercise_helper) == 0
-    assert gauge.balanceOf(bvm_exercise_helper) == 0
+    assert fvm.balanceOf(fvm_exercise_helper) == 0
+    assert wftm.balanceOf(fvm_exercise_helper) == 0
+    assert ofvm.balanceOf(fvm_exercise_helper) == 0
+    assert gauge.balanceOf(fvm_exercise_helper) == 0
 
-    weth_received = weth.balanceOf(obvm_whale) - weth_before
-    bvm_received = bvm.balanceOf(obvm_whale) - bvm_before
+    wftm_received = wftm.balanceOf(ofvm_whale) - wftm_before
+    fvm_received = fvm.balanceOf(ofvm_whale) - fvm_before
 
     if receive_underlying:
         print(
             "\n🥟 Dumped",
             "{:,.2f}".format(to_exercise / 1e18),
-            "oBVM for",
+            "oFVM for",
             "{:,.5f}".format(profit / 1e18),
-            "BVM 👻",
+            "FVM 👻",
         )
-        print("Received", weth_received / 1e18, "WETH")
+        print("Received", wftm_received / 1e18, "WFTM")
     else:
         print(
             "\n🥟 Dumped",
             "{:,.2f}".format(to_exercise / 1e18),
-            "oBVM for",
+            "oFVM for",
             "{:,.5f}".format(profit / 1e18),
-            "WETH 👻",
+            "WFTM 👻",
         )
-        print("Received", bvm_received / 1e18, "BVM")
-    print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
+        print("Received", fvm_received / 1e18, "FVM")
+    print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WFTM in fees\n")
 
 
-def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
+def test_fvm_exercise_helper_lp(
+    ofvm, fvm_exercise_helper, wftm, fvm, ofvm_whale, gauge
+):
     # exercise a small amount
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
-    obvm_before = obvm.balanceOf(obvm_whale)
-    weth_before = weth.balanceOf(obvm_whale)
-    bvm_before = bvm.balanceOf(obvm_whale)
-    lp_before = gauge.balanceOf(obvm_whale)
+    ofvm_before = ofvm.balanceOf(ofvm_whale)
+    wftm_before = wftm.balanceOf(ofvm_whale)
+    fvm_before = fvm.balanceOf(ofvm_whale)
+    lp_before = gauge.balanceOf(ofvm_whale)
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 10_000e18
@@ -101,15 +95,15 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
 
     # to_exercise: 500e18, percent_to_lp: 500 = , 701 = , 751 = , 755 = 0.04201%
     # to_exercise: 1_500e18, percent_to_lp: 500 = , 701 = , 751 = , 755 = 0.12592%
-    # to_exercise: 3_000e18, percent_to_lp: 500 = , 701 = , 751 = , 755 = 0.25152%, 1200 = 0.23944%, 1250 = 0.23809%, 1255 = 0.23795% (no BVM, only dust WETH received since < 0.0001 WETH so no swap)
+    # to_exercise: 3_000e18, percent_to_lp: 500 = , 701 = , 751 = , 755 = 0.25152%, 1200 = 0.23944%, 1250 = 0.23809%, 1255 = 0.23795% (no FVM, only dust WFTM received since < 0.0001 WFTM so no swap)
     # to_exercise: 10_000e18, percent_to_lp: 1255 = 0.78879%
 
-    obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+    ofvm.approve(fvm_exercise_helper, 2**256 - 1, {"from": ofvm_whale})
+    fee_before = wftm.balanceOf(fvm_exercise_helper.feeAddress())
 
     # first check exercising our LP
-    output = bvm_exercise_helper.quoteExerciseLp(
-        obvm, to_exercise, profit_slippage, percent_to_lp, discount
+    output = fvm_exercise_helper.quoteExerciseLp(
+        ofvm, to_exercise, profit_slippage, percent_to_lp, discount
     )
     print("\nLP view output:", output.dict())
     print("Slippage:", output["profitSlippage"] / 1e18)
@@ -117,28 +111,28 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
     print("Estimated Extra underlying:", output["underlyingOut"] / 1e18)
 
     # use our preset slippage and amount
-    bvm_exercise_helper.exerciseToLp(
-        obvm,
+    fvm_exercise_helper.exerciseToLp(
+        ofvm,
         to_exercise,
         profit_slippage,
         swap_slippage,
         percent_to_lp,
         discount,
-        {"from": obvm_whale},
+        {"from": ofvm_whale},
     )
 
-    assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
+    assert ofvm.balanceOf(ofvm_whale) == ofvm_before - to_exercise
 
-    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
+    fees = wftm.balanceOf(fvm_exercise_helper.feeAddress()) - fee_before
 
-    assert bvm.balanceOf(bvm_exercise_helper) == 0
-    assert weth.balanceOf(bvm_exercise_helper) == 0
-    assert obvm.balanceOf(bvm_exercise_helper) == 0
-    assert gauge.balanceOf(bvm_exercise_helper) == 0
+    assert fvm.balanceOf(fvm_exercise_helper) == 0
+    assert wftm.balanceOf(fvm_exercise_helper) == 0
+    assert ofvm.balanceOf(fvm_exercise_helper) == 0
+    assert gauge.balanceOf(fvm_exercise_helper) == 0
 
-    weth_received = weth.balanceOf(obvm_whale) - weth_before
-    bvm_received = bvm.balanceOf(obvm_whale) - bvm_before
-    lp_received = gauge.balanceOf(obvm_whale) - lp_before
+    wftm_received = wftm.balanceOf(ofvm_whale) - wftm_before
+    fvm_received = fvm.balanceOf(ofvm_whale) - fvm_before
+    lp_received = gauge.balanceOf(ofvm_whale) - lp_before
 
     print(
         "LP % slippage:",
@@ -147,30 +141,32 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
         ),
     )
 
-    print("\nReceived", weth_received / 1e18, "WETH")  # $1600
-    print("Received", bvm_received / 1e18, "BVM")  # $0.55
+    print("\nReceived", wftm_received / 1e18, "WFTM")  # $1600
+    print("Received", fvm_received / 1e18, "FVM")  # $0.55
     print("LP Received:", lp_received / 1e18)  # $1.52941176471
-    print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
+    print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WFTM in fees\n")
 
 
-def test_bvm_exercise_helper_lp_weird(
-    obvm, bvm_exercise_helper, weth, bvm, tests_using_tenderly
+def test_fvm_exercise_helper_lp_weird(
+    ofvm,
+    fvm_exercise_helper,
+    wftm,
+    fvm,
+    tests_using_tenderly,
+    wftm_whale,
+    ofvm_whale,
+    gauge,
 ):
     # we use tx.return_value here, and tenderly doesn't like that
     if tests_using_tenderly:
         return
 
     # exercise a small amount
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    weth_whale = accounts.at(
-        "0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True
-    )  # WETH-USDbC Aero pool
-    weth.transfer(obvm_whale, 10e18, {"from": weth_whale})
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
-    obvm_before = obvm.balanceOf(obvm_whale)
-    weth_before = weth.balanceOf(obvm_whale)
-    bvm_before = bvm.balanceOf(obvm_whale)
-    lp_before = gauge.balanceOf(obvm_whale)
+    wftm.transfer(ofvm_whale, 1_000e18, {"from": wftm_whale})
+    ofvm_before = ofvm.balanceOf(ofvm_whale)
+    wftm_before = wftm.balanceOf(ofvm_whale)
+    fvm_before = fvm.balanceOf(ofvm_whale)
+    lp_before = gauge.balanceOf(ofvm_whale)
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
@@ -180,44 +176,43 @@ def test_bvm_exercise_helper_lp_weird(
     discount = 35
     to_lp = int(1_000e18 * percent_to_lp / 10_000)
 
-    obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+    ofvm.approve(fvm_exercise_helper, 2**256 - 1, {"from": ofvm_whale})
 
     # first check exercising our LP
-    output = bvm_exercise_helper.quoteExerciseLp(
-        obvm, to_exercise, profit_slippage, percent_to_lp, discount
+    output = fvm_exercise_helper.quoteExerciseLp(
+        ofvm, to_exercise, profit_slippage, percent_to_lp, discount
     )
     print("\nLP view output:", output.dict())
     print("Slippage:", output["profitSlippage"] / 1e18)
     print("Estimated LP Out:", output["lpAmountOut"] / 1e18)
     print("Estimated Extra underlying:", output["underlyingOut"] / 1e18)
 
-    output = obvm.getPaymentTokenAmountForExerciseLp(to_lp, discount)
+    output = ofvm.getPaymentTokenAmountForExerciseLp(to_lp, discount)
     print(
         "Simulation:",
         output.dict(),
         output["paymentAmount"] + output["paymentAmountToAddLiquidity"],
     )
 
-    # test swapping in some BVM for WETH
-    dump_some_bvm = False
-    if dump_some_bvm:
-        bvm.approve(router, 2**256 - 1, {"from": obvm_whale})
-        bvm_to_weth = [(bvm.address, weth.address, False)]
-        bvm_to_swap = bvm.balanceOf(obvm_whale)
+    # test swapping in some FVM for WFTM
+    dump_some_fvm = False
+    if dump_some_fvm:
+        fvm.approve(router, 2**256 - 1, {"from": ofvm_whale})
+        fvm_to_wftm = [(fvm.address, wftm.address, False)]
+        fvm_to_swap = fvm.balanceOf(ofvm_whale)
         router.swapExactTokensForTokens(
-            bvm_to_swap,
+            fvm_to_swap,
             0,
-            bvm_to_weth,
-            obvm_whale.address,
+            fvm_to_wftm,
+            ofvm_whale.address,
             2**256 - 1,
-            {"from": obvm_whale},
+            {"from": ofvm_whale},
         )
 
-    weth.approve(obvm, 2**256 - 1, {"from": obvm_whale})
-    tx = obvm.exerciseLp(
-        to_lp, 2**256 - 1, obvm_whale, discount, 2**256 - 1, {"from": obvm_whale}
+    wftm.approve(ofvm, 2**256 - 1, {"from": ofvm_whale})
+    tx = ofvm.exerciseLp(
+        to_lp, 2**256 - 1, ofvm_whale, discount, 2**256 - 1, {"from": ofvm_whale}
     )
     print("Real thing:", tx.return_value)
-    obvm_after = obvm.balanceOf(obvm_whale)
-    assert obvm_before - obvm_after == to_lp
+    ofvm_after = ofvm.balanceOf(ofvm_whale)
+    assert ofvm_before - ofvm_after == to_lp

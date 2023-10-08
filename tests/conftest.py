@@ -13,7 +13,7 @@ def isolate(fn_isolation):
 use_tenderly = False
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
-chain_used = 8453
+chain_used = 250
 
 
 @pytest.fixture(scope="session")
@@ -72,33 +72,52 @@ def receive_underlying(request):
     yield request.param
 
 
-if chain_used == 8453:
+@pytest.fixture(scope="function")
+def router():
+    router = Contract("0x2E14B53E2cB669f3A974CeaF6C735e134F3Aa9BC")  # normal FVM router
+    yield router
 
-    @pytest.fixture(scope="function")
-    def router():
-        router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
-        yield router
 
-    @pytest.fixture(scope="session")
-    def screamsh():
-        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+@pytest.fixture(scope="function")
+def gauge():
+    gauge = Contract("0xa3643a5d5B672a267199227CD3E95eD0B41DBD52")  # FVM-WFTM gauge
+    yield gauge
 
-    @pytest.fixture(scope="session")
-    def weth():
-        yield Contract("0x4200000000000000000000000000000000000006")
 
-    @pytest.fixture(scope="session")
-    def bvm():
-        yield interface.IERC20("0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a")
+@pytest.fixture(scope="session")
+def screamsh():
+    yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
-    @pytest.fixture(scope="session")
-    def obvm():
-        yield Contract("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
 
-    # our dump helper
-    @pytest.fixture(scope="function")
-    def bvm_exercise_helper(SimpleExerciseHelperBaseWETH, screamsh):
-        bvm_exercise_helper = screamsh.deploy(
-            SimpleExerciseHelperBaseWETH,
-        )
-        yield bvm_exercise_helper
+@pytest.fixture(scope="session")
+def ofvm_whale():
+    yield accounts.at("0x9aCf8D0315094d33Aa6875B673EB126483C3A2c0", force=True)
+
+
+@pytest.fixture(scope="session")
+def wftm_whale():
+    yield accounts.at("0x3E923747cA2675E096d812c3b24846aC39aeD645", force=True)
+
+
+@pytest.fixture(scope="session")
+def wftm():
+    yield Contract("0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83")
+
+
+@pytest.fixture(scope="session")
+def fvm():
+    yield interface.IERC20("0x07BB65fAaC502d4996532F834A1B7ba5dC32Ff96")
+
+
+@pytest.fixture(scope="session")
+def ofvm():
+    yield Contract("0xF9EDdca6B1e548B0EC8cDDEc131464F462b8310D")
+
+
+# our dump helper
+@pytest.fixture(scope="function")
+def fvm_exercise_helper(SimpleExerciseHelperFantomWFTM, screamsh):
+    fvm_exercise_helper = screamsh.deploy(
+        SimpleExerciseHelperFantomWFTM,
+    )
+    yield fvm_exercise_helper

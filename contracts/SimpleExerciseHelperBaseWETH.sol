@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -98,23 +98,23 @@ interface IRouter {
 }
 
 /**
- * @title Simple Exercise Helper Base WETH
- * @notice This contract easily converts oTokens on Base paired with WETH
- *  such as oBVM to WETH using flash loans.
+ * @title Simple Exercise Helper Fantom WFTM
+ * @notice This contract easily converts oTokens on Fantom that are paired with WFTM
+ *  (such as oFVM) to WFTM, underlying, or underlying-WFTM LP token using flash loans.
  */
 
-contract SimpleExerciseHelperBaseWETH is Ownable2Step {
-    /// @notice WETH, payment token
-    IERC20 internal constant weth =
-        IERC20(0x4200000000000000000000000000000000000006);
+contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
+    /// @notice WFTM, payment token
+    IERC20 internal constant wftm =
+        IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
     /// @notice Flashloan from Balancer vault
     IBalancer internal constant balancerVault =
-        IBalancer(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+        IBalancer(0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce);
 
-    /// @notice BVM router for swaps
+    /// @notice FVM router for swaps
     IRouter internal constant router =
-        IRouter(0xE11b93B61f6291d35c5a2beA0A9fF169080160cF);
+        IRouter(0x2E14B53E2cB669f3A974CeaF6C735e134F3Aa9BC);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
@@ -130,13 +130,13 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     /**
      * @notice Check if spot swap price and exercising are similar enough for our liking.
      * @param _oToken The option token we are exercising.
-     * @param _optionTokenAmount The amount of oToken to exercise to WETH.
+     * @param _optionTokenAmount The amount of oToken to exercise to WFTM.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options
      *  on profit outcomes.
-     * @return wethNeeded How much WETH is needed for given amount of oToken.
+     * @return wftmNeeded How much WFTM is needed for given amount of oToken.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our
      *  slippage tolerance.
-     * @return realProfit Simulated profit in WETH after repaying flash loan.
+     * @return realProfit Simulated profit in WFTM after repaying flash loan.
      * @return expectedProfit Calculated ideal profit based on redemption discount plus
      *  allowed slippage.
      * @return profitSlippage Expected profit slippage with given oToken amount, 18
@@ -150,7 +150,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         public
         view
         returns (
-            uint256 wethNeeded,
+            uint256 wftmNeeded,
             bool withinSlippageTolerance,
             uint256 realProfit,
             uint256 expectedProfit,
@@ -164,29 +164,29 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             revert("Slippage must be less than 10,000");
         }
 
-        // calculate how much WETH we need for our oToken amount
-        wethNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
+        // calculate how much WFTM we need for our oToken amount
+        wftmNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
 
-        // compare our WETH needed to spot price
-        uint256 wethReceived = router.getAmountOut(
+        // compare our WFTM needed to spot price
+        uint256 wftmReceived = router.getAmountOut(
             _optionTokenAmount,
             IoToken(_oToken).underlyingToken(),
-            address(weth),
+            address(wftm),
             false
         );
-        uint256 estimatedFee = (wethReceived * fee) / MAX_BPS;
+        uint256 estimatedFee = (wftmReceived * fee) / MAX_BPS;
 
         // make sure we don't spend more than we have
-        if (wethNeeded > wethReceived - estimatedFee) {
+        if (wftmNeeded > wftmReceived - estimatedFee) {
             revert("Cost exceeds profit");
         } else {
-            realProfit = wethReceived - wethNeeded - estimatedFee;
+            realProfit = wftmReceived - wftmNeeded - estimatedFee;
         }
 
-        // calculate our ideal profit using the discount and known wethNeeded
+        // calculate our ideal profit using the discount and known wftmNeeded
         uint256 discount = IoToken(_oToken).discount();
         expectedProfit =
-            ((wethNeeded * (DISCOUNT_DENOMINATOR - discount)) / discount) -
+            ((wftmNeeded * (DISCOUNT_DENOMINATOR - discount)) / discount) -
             estimatedFee;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
@@ -211,7 +211,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      * @param _optionTokenAmount The amount of oToken to exercise to underlying.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options
      *  on profit outcomes.
-     * @return wethNeeded How much WETH is needed for given amount of oToken.
+     * @return wftmNeeded How much WFTM is needed for given amount of oToken.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our
      *  slippage tolerance.
      * @return realProfit Simulated profit in underlying after repaying flash loan.
@@ -228,7 +228,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         public
         view
         returns (
-            uint256 wethNeeded,
+            uint256 wftmNeeded,
             bool withinSlippageTolerance,
             uint256 realProfit,
             uint256 expectedProfit,
@@ -242,26 +242,26 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             revert("Slippage must be less than 10,000");
         }
 
-        // calculate how much WETH we need for our oToken amount
-        wethNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
+        // calculate how much WFTM we need for our oToken amount
+        wftmNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
 
-        // simulate swapping all to WETH to better estimate total WETH needed
+        // simulate swapping all to WFTM to better estimate total WFTM needed
         address underlying = IoToken(_oToken).underlyingToken();
         uint256 minAmount = router.getAmountOut(
             _optionTokenAmount,
             underlying,
-            address(weth),
+            address(wftm),
             false
         );
-        minAmount = wethNeeded + (minAmount * fee) / MAX_BPS;
+        minAmount = wftmNeeded + (minAmount * fee) / MAX_BPS;
 
-        // calculate how much underlying we need to get at least this much WETH
-        address[] memory underlyingToWethAddress = new address[](2);
-        underlyingToWethAddress[0] = underlying;
-        underlyingToWethAddress[1] = address(weth);
+        // calculate how much underlying we need to get at least this much WFTM
+        address[] memory underlyingToWftmAddress = new address[](2);
+        underlyingToWftmAddress[0] = underlying;
+        underlyingToWftmAddress[1] = address(wftm);
         uint256[] memory amounts = getAmountsIn(
             minAmount,
-            underlyingToWethAddress
+            underlyingToWftmAddress
         );
         minAmount = amounts[0];
 
@@ -352,12 +352,12 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             _profitSlippageAllowed
         );
 
-        // simulate swapping our underlyingToken to WETH
+        // simulate swapping our underlyingToken to WFTM
         address underlying = IoToken(_oToken).underlyingToken();
-        uint256 wethAmountOut = router.getAmountOut(
+        uint256 wftmAmountOut = router.getAmountOut(
             underlyingAmountOut,
             underlying,
-            address(weth),
+            address(wftm),
             false
         );
 
@@ -368,26 +368,26 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         paymentAmount += matchingForLp;
 
         // revert if we don't have enough
-        if (paymentAmount > wethAmountOut) {
-            revert("Need more WETH, decrease _percentToLp or _discount values");
+        if (paymentAmount > wftmAmountOut) {
+            revert("Need more WFTM, decrease _percentToLp or _discount values");
         }
 
         // how much LP would we get?
         (, , lpAmountOut) = router.quoteAddLiquidity(
             underlying,
-            address(weth),
+            address(wftm),
             false,
             oTokensToLp,
             matchingForLp
         );
 
-        // check how much WETH we have remaining
-        uint256 wethOut = wethAmountOut - paymentAmount;
+        // check how much WFTM we have remaining
+        uint256 wftmOut = wftmAmountOut - paymentAmount;
 
-        // convert remaining WETH to underlying
+        // convert remaining WFTM to underlying
         underlyingOut = router.getAmountOut(
-            wethOut,
-            address(weth),
+            wftmOut,
+            address(wftm),
             underlying,
             false
         );
@@ -427,7 +427,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
 
         // simulate exercising our oTokens to underlying, and check slippage
         (
-            uint256 wethNeeded,
+            uint256 wftmNeeded,
             bool withinSlippageTolerance,
             ,
             ,
@@ -443,11 +443,11 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             revert("Profit not within slippage tolerance, check TWAP");
         }
 
-        // convert tokens to underlying vs WETH as it should be lower fee overall
+        // convert tokens to underlying vs WFTM as it should be lower fee overall
         _borrowPaymentToken(
             _oToken,
             oTokensToSell,
-            wethNeeded,
+            wftmNeeded,
             true,
             _swapSlippageAllowed
         );
@@ -456,17 +456,17 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         //  enough for it to be negligible, and true slippage (🥪) protection isn't
         //  possible without an external price oracle
 
-        // convert any leftover underlying to WETH before exercising
+        // convert any leftover underlying to WFTM before exercising
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 underlyingBalance = underlying.balanceOf(address(this));
 
         if (underlyingBalance > 0) {
-            // swap underlying to WETH
+            // swap underlying to WFTM
             router.swapExactTokensForTokensSimple(
                 underlyingBalance,
                 0,
                 address(underlying),
-                address(weth),
+                address(wftm),
                 false,
                 address(this),
                 block.timestamp
@@ -477,30 +477,30 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         uint256 oTokensToLp = _optionTokenAmount - oTokensToSell;
         IoToken(_oToken).exerciseLp(
             oTokensToLp,
-            weth.balanceOf(address(this)),
+            wftm.balanceOf(address(this)),
             msg.sender,
             _discount,
             block.timestamp
         );
 
-        // convert any significant remaining WETH to underlying
-        uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 1e14) {
-            // swap, update wethBalance
+        // convert any significant remaining WFTM to underlying
+        uint256 wftmBalance = wftm.balanceOf(address(this));
+        if (wftmBalance > 1e14) {
+            // swap, update wftmBalance
             router.swapExactTokensForTokensSimple(
-                wethBalance,
+                wftmBalance,
                 0,
-                address(weth),
+                address(wftm),
                 address(underlying),
                 false,
                 address(this),
                 block.timestamp
             );
-            wethBalance = weth.balanceOf(address(this));
+            wftmBalance = wftm.balanceOf(address(this));
         }
 
-        if (wethBalance > 0) {
-            _safeTransfer(address(weth), msg.sender, wethBalance);
+        if (wftmBalance > 0) {
+            _safeTransfer(address(wftm), msg.sender, wftmBalance);
         }
 
         underlyingBalance = underlying.balanceOf(address(this));
@@ -510,10 +510,10 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oToken for WETH or underlying.
+     * @notice Exercise our oToken for WFTM or underlying.
      * @param _oToken The option token we are exercising.
      * @param _amount The amount of oToken to exercise.
-     * @param _receiveUnderlying Whether the user wants to receive WETH or underlying.
+     * @param _receiveUnderlying Whether the user wants to receive WFTM or underlying.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options
      *  on profit outcomes.
      * @param _swapSlippageAllowed Slippage (really price impact) we allow while
@@ -531,7 +531,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
 
         // check that slippage tolerance for profit is okay
         (
-            uint256 wethNeeded,
+            uint256 wftmNeeded,
             bool withinSlippageTolerance,
             ,
             ,
@@ -551,7 +551,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         _borrowPaymentToken(
             _oToken,
             oToken.balanceOf(address(this)),
-            wethNeeded,
+            wftmNeeded,
             _receiveUnderlying,
             _swapSlippageAllowed
         );
@@ -561,24 +561,24 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         //  possible without an external price oracle
 
         // anything remaining in the helper is pure profit
-        uint256 wethBalance = weth.balanceOf(address(this));
+        uint256 wftmBalance = wftm.balanceOf(address(this));
 
         if (_receiveUnderlying) {
             // pull out our underlying token
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
 
-            // swap any leftover WETH to underlying, unless dust, then send back as WETH
-            if (wethBalance > 1e14) {
+            // swap any leftover WFTM to underlying, unless dust, then send back as WFTM
+            if (wftmBalance > 1e14) {
                 router.swapExactTokensForTokensSimple(
-                    wethBalance,
+                    wftmBalance,
                     0,
-                    address(weth),
+                    address(wftm),
                     address(underlying),
                     false,
                     address(this),
                     block.timestamp
                 );
-                wethBalance = weth.balanceOf(address(this));
+                wftmBalance = wftm.balanceOf(address(this));
             }
 
             // send underlying to user
@@ -592,23 +592,23 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             }
         }
 
-        if (wethBalance > 0) {
-            _safeTransfer(address(weth), msg.sender, wethBalance);
+        if (wftmBalance > 0) {
+            _safeTransfer(address(wftm), msg.sender, wftmBalance);
         }
     }
 
     /**
-     * @notice Flash loan our WETH from Balancer.
+     * @notice Flash loan our WFTM from Balancer.
      * @param _oToken The option token we are exercising.
      * @param _oTokenToExercise The amount of oToken we are exercising.
-     * @param _wethNeeded The amount of WETH needed.
-     * @param _receiveUnderlying Whether the user wants to receive WETH or underlying.
+     * @param _wftmNeeded The amount of WFTM needed.
+     * @param _receiveUnderlying Whether the user wants to receive WFTM or underlying.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
     function _borrowPaymentToken(
         address _oToken,
         uint256 _oTokenToExercise,
-        uint256 _wethNeeded,
+        uint256 _wftmNeeded,
         bool _receiveUnderlying,
         uint256 _slippageAllowed
     ) internal {
@@ -617,15 +617,15 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
 
         // create our input args
         address[] memory tokens = new address[](1);
-        tokens[0] = address(weth);
+        tokens[0] = address(wftm);
 
         uint256[] memory amounts = new uint256[](1);
-        amounts[0] = _wethNeeded;
+        amounts[0] = _wftmNeeded;
 
         bytes memory userData = abi.encode(
             _oToken,
             _oTokenToExercise,
-            _wethNeeded,
+            _wftmNeeded,
             _receiveUnderlying,
             _slippageAllowed
         );
@@ -638,7 +638,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      * @notice Fallback function used during flash loans.
      * @dev May only be called by balancer vault as part of
      *  flash loan callback.
-     * @param _tokens The tokens we are swapping (in our case, only WETH).
+     * @param _tokens The tokens we are swapping (in our case, only WFTM).
      * @param _amounts The amounts of said tokens.
      * @param _feeAmounts The fee amounts for said tokens.
      * @param _userData Useful data passed when calling our flash loan.
@@ -661,7 +661,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         (
             address _oToken,
             uint256 _oTokenToExercise,
-            uint256 _wethToExercise,
+            uint256 _wftmToExercise,
             bool _receiveUnderlying,
             uint256 _slippageAllowed
         ) = abi.decode(_userData, (address, uint256, uint256, bool, uint256));
@@ -669,36 +669,36 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         _exerciseAndSwap(
             _oToken,
             _oTokenToExercise,
-            _wethToExercise,
+            _wftmToExercise,
             _receiveUnderlying,
             _slippageAllowed
         );
 
         // repay our flash loan
         uint256 payback = _amounts[0] + _feeAmounts[0];
-        _safeTransfer(address(weth), address(balancerVault), payback);
+        _safeTransfer(address(wftm), address(balancerVault), payback);
         flashEntered = false;
     }
 
     /**
-     * @notice Exercise our oToken, then swap some (or all) underlying to WETH.
+     * @notice Exercise our oToken, then swap some (or all) underlying to WFTM.
      * @param _oToken The option token we are exercising.
      * @param _optionTokenAmount Amount of oToken to exercise.
-     * @param _wethAmount Amount of WETH needed to pay for exercising.
-     * @param _receiveUnderlying Whether the user wants to receive WETH or underlying.
+     * @param _wftmAmount Amount of WFTM needed to pay for exercising.
+     * @param _receiveUnderlying Whether the user wants to receive WFTM or underlying.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
     function _exerciseAndSwap(
         address _oToken,
         uint256 _optionTokenAmount,
-        uint256 _wethAmount,
+        uint256 _wftmAmount,
         bool _receiveUnderlying,
         uint256 _slippageAllowed
     ) internal {
         // exercise
         IoToken(_oToken).exercise(
             _optionTokenAmount,
-            _wethAmount,
+            _wftmAmount,
             address(this)
         );
 
@@ -706,71 +706,71 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 underlyingReceived = underlying.balanceOf(address(this));
 
-        IRouter.route[] memory underlyingToWeth = new IRouter.route[](1);
-        underlyingToWeth[0] = IRouter.route(
+        IRouter.route[] memory underlyingToWftm = new IRouter.route[](1);
+        underlyingToWftm[0] = IRouter.route(
             address(underlying),
-            address(weth),
+            address(wftm),
             false
         );
 
         // use this to minimize issues with slippage (swapping with too much size)
-        uint256 wethPerToken = router.getAmountOut(
+        uint256 wftmPerToken = router.getAmountOut(
             1e18,
             address(underlying),
-            address(weth),
+            address(wftm),
             false
         );
         uint256 minAmountOut = (underlyingReceived *
-            wethPerToken *
+            wftmPerToken *
             (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
 
         // use this amount to calculate fees
-        uint256 totalWeth;
+        uint256 totalWftm;
         uint256[] memory amounts;
 
         if (_receiveUnderlying) {
-            // simulate our swap to calc WETH needed for fee + repay flashloan
+            // simulate our swap to calc WFTM needed for fee + repay flashloan
             amounts = router.getAmountsOut(
                 _optionTokenAmount,
-                underlyingToWeth
+                underlyingToWftm
             );
-            totalWeth = amounts[1];
-            uint256 feeAmount = (totalWeth * fee) / MAX_BPS;
-            minAmountOut = feeAmount + _wethAmount;
+            totalWftm = amounts[1];
+            uint256 feeAmount = (totalWftm * fee) / MAX_BPS;
+            minAmountOut = feeAmount + _wftmAmount;
 
-            // calculate how much underlying we need to get at least this much WETH
+            // calculate how much underlying we need to get at least this much WFTM
 
             // then do our wBLT -> underlying step
-            address[] memory underlyingToWethAddresses = new address[](2);
-            underlyingToWethAddresses[0] = address(underlying);
-            underlyingToWethAddresses[1] = address(weth);
-            amounts = getAmountsIn(minAmountOut, underlyingToWethAddresses);
+            address[] memory underlyingToWftmAddresses = new address[](2);
+            underlyingToWftmAddresses[0] = address(underlying);
+            underlyingToWftmAddresses[1] = address(wftm);
+            amounts = getAmountsIn(minAmountOut, underlyingToWftmAddresses);
             uint256 underlyingToSwap = amounts[0];
 
             // swap our underlying amount calculated above
             router.swapExactTokensForTokens(
                 underlyingToSwap,
                 minAmountOut,
-                underlyingToWeth,
+                underlyingToWftm,
                 address(this),
                 block.timestamp
             );
 
             // take fees
-            _takeFees(totalWeth);
+            _takeFees(totalWftm);
         } else {
-            // use our router to swap from underlying to WETH
+            // use our router to swap from underlying to WFTM
             amounts = router.swapExactTokensForTokens(
                 underlyingReceived,
                 minAmountOut,
-                underlyingToWeth,
+                underlyingToWftm,
                 address(this),
                 block.timestamp
             );
-            totalWeth = amounts[1];
+            totalWftm = amounts[1];
 
-            // take fees normally since we're doing all to WETH
-            _takeFees(totalWeth);
+            // take fees normally since we're doing all to WFTM
+            _takeFees(totalWftm);
         }
     }
 
@@ -781,7 +781,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      */
     function _takeFees(uint256 _amount) internal {
         uint256 toSend = (_amount * fee) / MAX_BPS;
-        _safeTransfer(address(weth), feeAddress, toSend);
+        _safeTransfer(address(wftm), feeAddress, toSend);
     }
 
     /**
@@ -798,7 +798,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     }
 
     /**
-     * @notice Update fee for oToken -> WETH conversion.
+     * @notice Update fee for oToken -> WFTM conversion.
      * @param _recipient Fee recipient address.
      * @param _newFee New fee, out of 10,000.
      */
@@ -869,13 +869,13 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      * @param _oToken Address of oToken to check for.
      */
     function _checkAllowance(address _oToken) internal {
-        if (weth.allowance(address(this), _oToken) == 0) {
-            weth.approve(_oToken, type(uint256).max);
+        if (wftm.allowance(address(this), _oToken) == 0) {
+            wftm.approve(_oToken, type(uint256).max);
 
             // approve router to spend underlying from this contract
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
             underlying.approve(address(router), type(uint256).max);
-            weth.approve(address(router), type(uint256).max);
+            wftm.approve(address(router), type(uint256).max);
         }
     }
 
