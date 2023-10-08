@@ -76,11 +76,6 @@ interface IRouter {
         bool stable
     ) external view returns (uint reserve0, uint reserve1);
 
-    function sortTokens(
-        address tokenA,
-        address tokenB
-    ) external view returns (address token0, address token1);
-
     function getAmountsOut(
         uint amountIn,
         route[] memory routes
@@ -239,10 +234,11 @@ contract wBLTExerciseHelper is Ownable2Step {
             realProfit = wethReceived - wethNeeded - estimatedFee;
         }
 
+        // calculate our ideal profit using the discount
         uint256 discount = IoToken(_oToken).discount();
         expectedProfit =
-            (wethNeeded * (DISCOUNT_DENOMINATOR - discount)) /
-            discount;
+            ((wethNeeded * (DISCOUNT_DENOMINATOR - discount)) / discount) -
+            estimatedFee;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
@@ -335,12 +331,8 @@ contract wBLTExerciseHelper is Ownable2Step {
         expectedProfit =
             (((_optionTokenAmount *
                 (DISCOUNT_DENOMINATOR - IoToken(_oToken).discount())) /
-                IoToken(_oToken).discount()) * (MAX_BPS - fee)) /
+                DISCOUNT_DENOMINATOR) * (MAX_BPS - fee)) /
             MAX_BPS;
-
-        // assume ~10% in swap fees as we go WETH -> BMX and back on approximately 10x
-        //  the assets we actually take in profit with roughly 1% in total swap fees
-        expectedProfit = (expectedProfit * (MAX_BPS - 1_000)) / MAX_BPS;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
@@ -650,7 +642,7 @@ contract wBLTExerciseHelper is Ownable2Step {
 
         // anything remaining in the helper is pure profit
         uint256 wBLTBalance = wBLT.balanceOf(address(this));
-        
+
         // convert any significant remaining wBLT to WETH
         if (wBLTBalance > 1e17) {
             router.swapExactTokensForTokens(
@@ -662,9 +654,9 @@ contract wBLTExerciseHelper is Ownable2Step {
             );
             wBLTBalance = wBLT.balanceOf(address(this));
         }
-        
+
         uint256 wethBalance = weth.balanceOf(address(this));
-        
+
         if (_receiveUnderlying) {
             // pull out our underlying token
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());

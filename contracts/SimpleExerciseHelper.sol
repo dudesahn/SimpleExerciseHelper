@@ -36,6 +36,24 @@ interface IRouter {
         bool stable;
     }
 
+    function getReserves(
+        address tokenA,
+        address tokenB,
+        bool stable
+    ) external view returns (uint reserve0, uint reserve1);
+
+    function getAmountOut(
+        uint amountIn,
+        address tokenIn,
+        address tokenOut,
+        bool stable
+    ) external view returns (uint amount);
+
+    function getAmountsOut(
+        uint amountIn,
+        route[] memory routes
+    ) external view returns (uint[] memory amounts);
+
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -44,12 +62,15 @@ interface IRouter {
         uint deadline
     ) external returns (uint[] memory amounts);
 
-    function getAmountOut(
+    function swapExactTokensForTokensSimple(
         uint amountIn,
-        address tokenIn,
-        address tokenOut,
-        bool stable
-    ) external view returns (uint amount);
+        uint amountOutMin,
+        address tokenFrom,
+        address tokenTo,
+        bool stable,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
 }
 
 /**
@@ -117,24 +138,29 @@ contract SimpleExerciseHelper is Ownable2Step {
         }
 
         // figure out how much WETH we need for our oToken amount
-        wethNeeded = IoToken(_oToken).getDiscountedPrice(
-            _optionTokenAmount
-        );
+        wethNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
 
         // compare our token needed to spot price
-        uint256 spotWethReceived = router.getAmountOut(
+        uint256 wethReceived = router.getAmountOut(
             _optionTokenAmount,
             IoToken(_oToken).underlyingToken(),
             address(weth),
             false
         );
-        realProfit = spotWethReceived - wethNeeded;
+        uint256 estimatedFee = (wethReceived * fee) / MAX_BPS;
+
+        // compare make sure we don't spend more than we have
+        if (wethNeeded > wethReceived - estimatedFee) {
+            revert("Cost exceeds profit");
+        } else {
+            realProfit = wethReceived - wethNeeded - estimatedFee;
+        }
 
         // calculate our ideal profit using the discount
         uint256 discount = IoToken(_oToken).discount();
         expectedProfit =
-            (wethNeeded * (DISCOUNT_DENOMINATOR - discount)) /
-            discount;
+            ((wethNeeded * (DISCOUNT_DENOMINATOR - discount)) / discount) -
+            estimatedFee;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
@@ -187,31 +213,22 @@ contract SimpleExerciseHelper is Ownable2Step {
         }
 
         // figure out how much WETH we need for our oToken amount
-        wethNeeded = IoToken(_oToken).getDiscountedPrice(
-            _optionTokenAmount
-        );
+        wethNeeded = IoToken(_oToken).getDiscountedPrice(_optionTokenAmount);
 
-        // create our route for swapping underlying -> WETH
-        IRouter.route[] memory swapRoute = new IRouter.route[](1);
-        swapRoute[0] = IRouter.route(
+        // simulate swapping all to WETH to better estimate total WETH needed
+        uint256 minAmount = router.getAmountOut(
+            _optionTokenAmount,
             IoToken(_oToken).underlyingToken(),
             address(weth),
             false
         );
-
-        // simulate swapping all to WETH to better estimate total WETH needed
-        uint256[] memory amounts = router.getAmountsOut(
-            _optionTokenAmount,
-            swapRoute
-        );
-        uint256 minAmount = amounts[2];
         minAmount = wethNeeded + (minAmount * fee) / MAX_BPS;
 
         // calculate how much underlying we need to get at least this much WETH
         address[] memory underlyingToWeth = new address[](2);
         underlyingToWeth[0] = IoToken(_oToken).underlyingToken();
         underlyingToWeth[1] = address(weth);
-        amounts = getAmountsIn(minAmount, underlyingToWeth);
+        uint256[] memory amounts = getAmountsIn(minAmount, underlyingToWeth);
         minAmount = amounts[0];
 
         // calculate our real and expected profit
@@ -219,12 +236,8 @@ contract SimpleExerciseHelper is Ownable2Step {
         expectedProfit =
             (((_optionTokenAmount *
                 (DISCOUNT_DENOMINATOR - IoToken(_oToken).discount())) /
-                IoToken(_oToken).discount()) * (MAX_BPS - fee)) /
+                DISCOUNT_DENOMINATOR) * (MAX_BPS - fee)) /
             MAX_BPS;
-
-        // assume ~10% in swap fees as we go WETH -> underlying and back on approximately 10x
-        //  the assets we actually take in profit with roughly 1% in total swap fees
-        expectedProfit = (expectedProfit * (MAX_BPS - 1_000)) / MAX_BPS;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
@@ -278,8 +291,13 @@ contract SimpleExerciseHelper is Ownable2Step {
         }
 
         // get our flash loan started
-        _borrowPaymentToken(_oToken, 
-            oToken.balanceOf(address(this)), wethNeeded, _receiveUnderlying, _swapSlippageAllowed);
+        _borrowPaymentToken(
+            _oToken,
+            oToken.balanceOf(address(this)),
+            wethNeeded,
+            _receiveUnderlying,
+            _swapSlippageAllowed
+        );
 
         // anything remaining in the helper is pure profit
         uint256 wethBalance = weth.balanceOf(address(this));
@@ -287,7 +305,7 @@ contract SimpleExerciseHelper is Ownable2Step {
         if (_receiveUnderlying) {
             // pull out our underlying token
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
-            uint256 underlyingBalance = underlying.balanceOf(address(this))
+            uint256 underlyingBalance = underlying.balanceOf(address(this));
 
             // swap any leftover WETH to underlying, unless dust, then just send back as WETH
             if (wethBalance > 1e14) {
@@ -312,7 +330,7 @@ contract SimpleExerciseHelper is Ownable2Step {
                 );
             }
         }
-        
+
         if (wethBalance > 0) {
             _safeTransfer(address(weth), msg.sender, wethBalance);
         }
@@ -341,7 +359,7 @@ contract SimpleExerciseHelper is Ownable2Step {
         tokens[0] = address(weth);
 
         uint256[] memory amounts = new uint256[](1);
-        amounts[0] = _amountNeeded;
+        amounts[0] = _wethNeeded;
 
         bytes memory userData = abi.encode(
             _oToken,
@@ -422,7 +440,7 @@ contract SimpleExerciseHelper is Ownable2Step {
             _wethAmount,
             address(this)
         );
-        
+
         // pull our underlying from the oToken
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 underlyingReceived = underlying.balanceOf(address(this));
@@ -447,11 +465,12 @@ contract SimpleExerciseHelper is Ownable2Step {
 
         // use this amount to calculate fees
         uint256 totalWeth;
+        uint256[] memory amounts;
 
         if (_receiveUnderlying) {
             // simulate our swap to calc WETH needed for fee + repay flashloan
             amounts = router.getAmountsOut(_optionTokenAmount, tokenToWeth);
-            totalWeth = amounts[2];
+            totalWeth = amounts[1];
             uint256 feeAmount = (totalWeth * fee) / MAX_BPS;
             minAmountOut = feeAmount + _wethAmount;
 
@@ -462,7 +481,7 @@ contract SimpleExerciseHelper is Ownable2Step {
             underlyingToWETH[0] = address(underlying);
             underlyingToWETH[1] = address(weth);
             amounts = getAmountsIn(minAmountOut, underlyingToWETH);
-            underlyingToSwap = amounts[0];
+            uint256 underlyingToSwap = amounts[0];
 
             // swap our underlying amount calculated above
             router.swapExactTokensForTokens(

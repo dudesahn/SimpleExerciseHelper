@@ -8,10 +8,12 @@ def test_bvm_exercise_helper(
     bvm_exercise_helper,
     weth,
     bvm,
+    receive_underlying,
 ):
     obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
     obvm_before = obvm.balanceOf(obvm_whale)
     weth_before = weth.balanceOf(obvm_whale)
+    bvm_before = bvm.balanceOf(obvm_whale)
 
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
@@ -21,8 +23,12 @@ def test_bvm_exercise_helper(
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
     fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
 
+    if receive_underlying:
+        result = bvm_exercise_helper.quoteExerciseToUnderlying(obvm, to_exercise, 0)
+    else:
+        result = bvm_exercise_helper.quoteExerciseProfit(obvm, to_exercise, 0)
+
     # use our preset slippage and amount
-    result = bvm_exercise_helper.quoteExerciseProfit(obvm, to_exercise, 0)
     print("Result w/ zero slippage", result.dict())
     real_slippage = (result["expectedProfit"] - result["realProfit"]) / result[
         "expectedProfit"
@@ -30,25 +36,49 @@ def test_bvm_exercise_helper(
     print("Slippage (manually calculated):", "{:,.2f}%".format(real_slippage * 100))
 
     bvm_exercise_helper.exercise(
-        obvm, to_exercise, profit_slippage, swap_slippage, {"from": obvm_whale}
+        obvm,
+        to_exercise,
+        receive_underlying,
+        profit_slippage,
+        swap_slippage,
+        {"from": obvm_whale},
     )
 
+    if receive_underlying:
+        assert bvm_before < bvm.balanceOf(obvm_whale)
+        profit = bvm.balanceOf(obvm_whale) - bvm_before
+    else:
+        assert weth_before < weth.balanceOf(obvm_whale)
+        profit = weth.balanceOf(obvm_whale) - weth_before
+
     assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
-    assert weth_before < weth.balanceOf(obvm_whale)
-    profit = weth.balanceOf(obvm_whale) - weth_before
     fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
 
     assert bvm.balanceOf(bvm_exercise_helper) == 0
     assert weth.balanceOf(bvm_exercise_helper) == 0
     assert obvm.balanceOf(bvm_exercise_helper) == 0
 
-    print(
-        "\n🥟 Dumped",
-        "{:,.2f}".format(to_exercise / 1e18),
-        "oBVM for",
-        "{:,.5f}".format(profit / 1e18),
-        "WETH 👻",
-    )
+    weth_received = weth.balanceOf(obvm_whale) - weth_before
+    bvm_received = bvm.balanceOf(obvm_whale) - bvm_before
+
+    if receive_underlying:
+        print(
+            "\n🥟 Dumped",
+            "{:,.2f}".format(to_exercise / 1e18),
+            "oBVM for",
+            "{:,.5f}".format(profit / 1e18),
+            "BVM 👻",
+        )
+        print("Received", weth_received / 1e18, "WETH")
+    else:
+        print(
+            "\n🥟 Dumped",
+            "{:,.2f}".format(to_exercise / 1e18),
+            "oBVM for",
+            "{:,.5f}".format(profit / 1e18),
+            "WETH 👻",
+        )
+        print("Received", bvm_received / 1e18, "BVM")
     print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
 
 
@@ -99,7 +129,6 @@ def test_bmx_exercise_helper(
         profit = weth.balanceOf(obmx_whale) - weth_before
 
     assert obmx.balanceOf(obmx_whale) == obmx_before - to_exercise
-
     fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
 
     assert bmx.balanceOf(bmx_exercise_helper) == 0

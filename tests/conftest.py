@@ -10,7 +10,7 @@ def isolate(fn_isolation):
 
 
 # set this for if we want to use tenderly or not; mostly helpful because with brownie.reverts fails in tenderly forks.
-use_tenderly = True
+use_tenderly = False
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
 chain_used = 8453
@@ -466,7 +466,7 @@ def destination_strategy():
         True,
         False,
     ],
-    ids=["receive_bmx", "receive_weth"],
+    ids=["receive_underlying", "receive_weth"],
     scope="function",
 )
 def receive_underlying(request):
