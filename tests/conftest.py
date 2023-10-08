@@ -72,33 +72,52 @@ def receive_underlying(request):
     yield request.param
 
 
-if chain_used == 8453:
+@pytest.fixture(scope="session")
+def router():
+    yield Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
 
-    @pytest.fixture(scope="function")
-    def router():
-        router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
-        yield router
 
-    @pytest.fixture(scope="session")
-    def screamsh():
-        yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
+@pytest.fixture(scope="session")
+def gauge():
+    yield Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")  # BVM-WETH
 
-    @pytest.fixture(scope="session")
-    def weth():
-        yield Contract("0x4200000000000000000000000000000000000006")
 
-    @pytest.fixture(scope="session")
-    def bvm():
-        yield interface.IERC20("0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a")
+@pytest.fixture(scope="session")
+def screamsh():
+    yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
-    @pytest.fixture(scope="session")
-    def obvm():
-        yield Contract("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
 
-    # our dump helper
-    @pytest.fixture(scope="function")
-    def bvm_exercise_helper(SimpleExerciseHelperBaseWETH, screamsh):
-        bvm_exercise_helper = screamsh.deploy(
-            SimpleExerciseHelperBaseWETH,
-        )
-        yield bvm_exercise_helper
+@pytest.fixture(scope="session")
+def obvm_whale():
+    yield accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
+
+
+@pytest.fixture(scope="session")
+def weth_whale():
+    yield accounts.at(
+        "0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True
+    )  # WETH-USDbC Aero pool
+
+
+@pytest.fixture(scope="session")
+def weth():
+    yield Contract("0x4200000000000000000000000000000000000006")
+
+
+@pytest.fixture(scope="session")
+def bvm():
+    yield interface.IERC20("0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a")
+
+
+@pytest.fixture(scope="session")
+def obvm():
+    yield Contract("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
+
+
+# our dump helper
+@pytest.fixture(scope="function")
+def bvm_exercise_helper(SimpleExerciseHelperBaseWETH, screamsh):
+    bvm_exercise_helper = screamsh.deploy(
+        SimpleExerciseHelperBaseWETH,
+    )
+    yield bvm_exercise_helper

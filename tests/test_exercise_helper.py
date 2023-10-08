@@ -8,9 +8,9 @@ def test_bvm_exercise_helper(
     weth,
     bvm,
     receive_underlying,
+    obvm_whale,
+    gauge,
 ):
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
     obvm_before = obvm.balanceOf(obvm_whale)
     weth_before = weth.balanceOf(obvm_whale)
     bvm_before = bvm.balanceOf(obvm_whale)
@@ -21,7 +21,7 @@ def test_bvm_exercise_helper(
     swap_slippage = 50
 
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+    fee_before = weth.balanceOf(bvm_exercise_helper.feeAddress())
 
     if receive_underlying:
         result = bvm_exercise_helper.quoteExerciseToUnderlying(obvm, to_exercise, 0)
@@ -52,7 +52,7 @@ def test_bvm_exercise_helper(
         profit = weth.balanceOf(obvm_whale) - weth_before
 
     assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
-    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
+    fees = weth.balanceOf(bvm_exercise_helper.feeAddress()) - fee_before
 
     assert bvm.balanceOf(bvm_exercise_helper) == 0
     assert weth.balanceOf(bvm_exercise_helper) == 0
@@ -83,10 +83,15 @@ def test_bvm_exercise_helper(
     print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
 
 
-def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
+def test_bvm_exercise_helper_lp(
+    obvm,
+    bvm_exercise_helper,
+    weth,
+    bvm,
+    obvm_whale,
+    gauge,
+):
     # exercise a small amount
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
     obvm_before = obvm.balanceOf(obvm_whale)
     weth_before = weth.balanceOf(obvm_whale)
     bvm_before = bvm.balanceOf(obvm_whale)
@@ -105,7 +110,7 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
     # to_exercise: 10_000e18, percent_to_lp: 1255 = 0.78879%
 
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+    fee_before = weth.balanceOf(bvm_exercise_helper.feeAddress())
 
     # first check exercising our LP
     output = bvm_exercise_helper.quoteExerciseLp(
@@ -129,7 +134,7 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
 
     assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
 
-    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
+    fees = weth.balanceOf(bvm_exercise_helper.feeAddress()) - fee_before
 
     assert bvm.balanceOf(bvm_exercise_helper) == 0
     assert weth.balanceOf(bvm_exercise_helper) == 0
@@ -154,19 +159,21 @@ def test_bvm_exercise_helper_lp(obvm, bvm_exercise_helper, weth, bvm):
 
 
 def test_bvm_exercise_helper_lp_weird(
-    obvm, bvm_exercise_helper, weth, bvm, tests_using_tenderly
+    obvm,
+    bvm_exercise_helper,
+    weth,
+    bvm,
+    tests_using_tenderly,
+    obvm_whale,
+    gauge,
+    weth_whale,
 ):
     # we use tx.return_value here, and tenderly doesn't like that
     if tests_using_tenderly:
         return
 
     # exercise a small amount
-    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
-    weth_whale = accounts.at(
-        "0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True
-    )  # WETH-USDbC Aero pool
     weth.transfer(obvm_whale, 10e18, {"from": weth_whale})
-    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
     obvm_before = obvm.balanceOf(obvm_whale)
     weth_before = weth.balanceOf(obvm_whale)
     bvm_before = bvm.balanceOf(obvm_whale)
@@ -181,7 +188,6 @@ def test_bvm_exercise_helper_lp_weird(
     to_lp = int(1_000e18 * percent_to_lp / 10_000)
 
     obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
-    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
 
     # first check exercising our LP
     output = bvm_exercise_helper.quoteExerciseLp(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -99,8 +99,8 @@ interface IRouter {
 
 /**
  * @title Simple Exercise Helper Base WETH
- * @notice This contract easily converts oTokens on Base paired with WETH
- *  such as oBVM to WETH using flash loans.
+ * @notice This contract easily converts oTokens on Base that are paired with WETH
+ *  (such as oBVM) to WETH, underlying, or underlying-WETH LP token using flash loans.
  */
 
 contract SimpleExerciseHelperBaseWETH is Ownable2Step {
