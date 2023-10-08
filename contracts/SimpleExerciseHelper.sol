@@ -18,6 +18,22 @@ interface IoToken is IERC20 {
     function discount() external view returns (uint256);
 
     function underlyingToken() external view returns (address);
+
+    function getPaymentTokenAmountForExerciseLp(
+        uint256 _amount,
+        uint256 _discount
+    )
+        external
+        view
+        returns (uint256 paymentAmount, uint256 paymentAmountToAddLiquidity);
+
+    function exerciseLp(
+        uint256 _amount,
+        uint256 _maxPaymentAmount,
+        address _recipient,
+        uint256 _discount,
+        uint256 _deadline
+    ) external returns (uint256, uint256);
 }
 
 interface IBalancer {
@@ -62,6 +78,14 @@ interface IRouter {
         uint deadline
     ) external returns (uint[] memory amounts);
 
+    function quoteAddLiquidity(
+        address tokenA,
+        address tokenB,
+        bool stable,
+        uint amountADesired,
+        uint amountBDesired
+    ) external view returns (uint amountA, uint amountB, uint liquidity);
+
     function swapExactTokensForTokensSimple(
         uint amountIn,
         uint amountOutMin,
@@ -90,7 +114,7 @@ contract SimpleExerciseHelper is Ownable2Step {
 
     /// @notice BVM router for swaps
     IRouter internal constant router =
-        IRouter(0x68dc9978d159300767e541e0DDde1E1B2Ec79680);
+        IRouter(0xE11b93B61f6291d35c5a2beA0A9fF169080160cF);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
@@ -252,6 +276,217 @@ contract SimpleExerciseHelper is Ownable2Step {
         // check if real profit is greater than expected when accounting for allowed slippage
         if (realProfit > expectedProfit) {
             withinSlippageTolerance = true;
+        }
+    }
+
+    /**
+     * @notice Simulate our output, exercising oToken to LP, given various input
+     *  parameters. Any extra is sent to user as underlying.
+     * @dev Returned lpAmountOut matches exactly with simulating an oToken exerciseLp()
+     *  call. However, we slightly overestimate what is returned by this contract's
+     *  exerciseToLp() due to changing the blockchain state with multiple swaps prior to
+     *  the final oToken exerciseLp() call.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount The amount of oToken to exercise to LP.
+     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options
+     *  on profit outcomes.
+     * @param _percentToLp Out of 10,000. How much our oToken should we send to exercise
+     *  for LP?
+     * @param _discount Our discount percentage for LP. How long do we want to lock for?
+     * @return withinSlippageTolerance Whether expected vs real profit fall within our
+     *  slippage tolerance.
+     * @return lpAmountOut Simulated amount of LP token to receive.
+     * @return underlyingOut Simulated amount of underlying to receive.
+     * @return profitSlippage Expected profit slippage with given oToken amount, 18
+     *  decimals. Zero means extra profit (positive slippage).
+     */
+    function quoteExerciseLp(
+        address _oToken,
+        uint256 _optionTokenAmount,
+        uint256 _profitSlippageAllowed,
+        uint256 _percentToLp,
+        uint256 _discount
+    )
+        public
+        view
+        returns (
+            bool withinSlippageTolerance,
+            uint256 lpAmountOut,
+            uint256 underlyingOut,
+            uint256 profitSlippage
+        )
+    {
+        if (_percentToLp > 10_000) {
+            revert("Percent must be < 10,000");
+        }
+
+        // check slippage internally for the amount of option token to exercise
+        (, withinSlippageTolerance, , , profitSlippage) = quoteExerciseProfit(
+            _oToken,
+            _optionTokenAmount,
+            _profitSlippageAllowed
+        );
+
+        // correct our optionTokenAmount for our percent to LP
+        uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
+            10_000;
+
+        // simulate exercising our oTokens (this call accounts for repaying WETH flash loan & fees)
+        (, , uint256 underlyingAmountOut, , ) = quoteExerciseToUnderlying(
+            _oToken,
+            oTokensToSell,
+            _profitSlippageAllowed
+        );
+
+        // simulate swapping our underlyingToken to WETH
+        address underlying = IoToken(_oToken).underlyingToken();
+        uint256 wethAmountOut = router.getAmountOut(
+            underlyingAmountOut,
+            underlying,
+            address(weth),
+            false
+        );
+
+        // simulate using our WETH amount to LP with our selected discount, if not enough then revert
+        uint256 oTokensToLp = _optionTokenAmount - oTokensToSell;
+        (uint256 paymentAmount, uint256 matchingForLp) = IoToken(_oToken)
+            .getPaymentTokenAmountForExerciseLp(oTokensToLp, _discount);
+
+        paymentAmount += matchingForLp;
+
+        if (paymentAmount > wethAmountOut) {
+            revert("Need more WETH, decrease _percentToLp or _discount values");
+        }
+
+        // how much LP would we get?
+        (, , lpAmountOut) = router.quoteAddLiquidity(
+            underlying,
+            address(weth),
+            false,
+            oTokensToLp,
+            matchingForLp
+        );
+
+        // check how much paymentToken (WETH) we have remaining, then convert to underlying
+        uint256 wethOut = wethAmountOut - paymentAmount;
+
+        underlyingOut = router.getAmountOut(
+            wethOut,
+            address(weth),
+            underlying,
+            false
+        );
+    }
+
+    /**
+     * @notice Exercise our oToken for LP.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount The amount of oToken to exercise to LP.
+     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
+     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping underlying to WETH.
+     */
+    function exerciseToLp(
+        address _oToken,
+        uint256 _optionTokenAmount,
+        uint256 _profitSlippageAllowed,
+        uint256 _swapSlippageAllowed,
+        uint256 _percentToLp,
+        uint256 _discount
+    ) public {
+        // first person does the approvals for everyone else, what a nice person!
+        _checkAllowance(_oToken);
+
+        // transfer option token to this contract
+        _safeTransferFrom(
+            _oToken,
+            msg.sender,
+            address(this),
+            _optionTokenAmount
+        );
+
+        // correct our optionTokenAmount for our percent to LP
+        uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
+            10_000;
+
+        // simulate exercising our oTokens (this call accounts for repaying WETH flash loan & fees)
+        (
+            uint256 wethNeeded,
+            bool withinSlippageTolerance,
+            ,
+            ,
+
+        ) = quoteExerciseToUnderlying(
+                _oToken,
+                oTokensToSell,
+                _profitSlippageAllowed
+            );
+
+        if (!withinSlippageTolerance) {
+            revert("Profit not within slippage tolerance, check TWAP");
+        }
+
+        // convert tokens to underlying vs WETH as theoretically it should be lower fee overall
+        _borrowPaymentToken(
+            _oToken,
+            oTokensToSell,
+            wethNeeded,
+            true,
+            _swapSlippageAllowed
+        );
+
+        // use this to minimize issues with slippage
+        IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
+        uint256 wethAmountOut = router.getAmountOut(
+            1e18,
+            address(underlying),
+            address(weth),
+            false
+        );
+        uint256 minAmountOut = (wethAmountOut *
+            (MAX_BPS - _swapSlippageAllowed)) / (MAX_BPS);
+
+        // swap our underlying to WETH
+        router.swapExactTokensForTokensSimple(
+            underlying.balanceOf(address(this)),
+            minAmountOut,
+            address(underlying),
+            address(weth),
+            false,
+            address(this),
+            block.timestamp
+        );
+
+        // exercise our remaining oTokens and lock LP with msg.sender as recipient
+        uint256 oTokensToLp = _optionTokenAmount - oTokensToSell;
+        IoToken(_oToken).exerciseLp(
+            oTokensToLp,
+            weth.balanceOf(address(this)),
+            msg.sender,
+            _discount,
+            block.timestamp
+        );
+
+        // convert any significant remaining WETH to underlying
+        uint256 wethBalance = weth.balanceOf(address(this));
+        if (wethBalance > 1e14) {
+            router.swapExactTokensForTokensSimple(
+                wethBalance,
+                0,
+                address(weth),
+                address(underlying),
+                false,
+                address(this),
+                block.timestamp
+            );
+            wethBalance = weth.balanceOf(address(this));
+        }
+
+        if (wethBalance > 0) {
+            _safeTransfer(address(weth), msg.sender, wethBalance);
+        }
+        uint256 underlyingBalance = underlying.balanceOf(address(this));
+        if (underlyingBalance > 0) {
+            _safeTransfer(address(underlying), msg.sender, underlyingBalance);
         }
     }
 
@@ -593,6 +828,7 @@ contract SimpleExerciseHelper is Ownable2Step {
             // approve router to spend underlying from this contract
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
             underlying.approve(address(router), type(uint256).max);
+            weth.approve(address(router), type(uint256).max);
         }
     }
 

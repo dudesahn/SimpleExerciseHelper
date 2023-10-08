@@ -10,7 +10,7 @@ def isolate(fn_isolation):
 
 
 # set this for if we want to use tenderly or not; mostly helpful because with brownie.reverts fails in tenderly forks.
-use_tenderly = False
+use_tenderly = True
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
 chain_used = 8453

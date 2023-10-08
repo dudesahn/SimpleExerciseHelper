@@ -82,6 +82,72 @@ def test_bvm_exercise_helper(
     print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
 
 
+def test_bvm_exercise_helper_lp(
+    obvm, bvm_exercise_helper, weth, bvm, tests_using_tenderly
+):
+    if not tests_using_tenderly:
+        return
+
+    # exercise a small amount
+    obvm_whale = accounts.at("0x06b16991B53632C2362267579AE7C4863c72fDb8", force=True)
+    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")
+    obvm_before = obvm.balanceOf(obvm_whale)
+    weth_before = weth.balanceOf(obvm_whale)
+    bvm_before = bvm.balanceOf(obvm_whale)
+    lp_before = gauge.balanceOf(obvm_whale)
+
+    # control how much we exercise. larger size, more slippage
+    to_exercise = 1_000e18
+    profit_slippage = 4000  # in BPS
+    swap_slippage = 50
+    percent_to_lp = 650
+    discount = 35
+
+    obvm.approve(bvm_exercise_helper, 2**256 - 1, {"from": obvm_whale})
+    fee_before = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
+
+    # first check exercising our LP
+    output = bvm_exercise_helper.quoteExerciseLp(
+        obvm, to_exercise, profit_slippage, percent_to_lp, discount
+    )
+    print("\nLP view output:", output.dict())
+    print("Slippage:", output["profitSlippage"] / 1e18)
+    print("Estimated LP Out:", output["lpAmountOut"] / 1e18)
+    print("Estimated Extra underlying:", output["underlyingOut"] / 1e18)
+
+    # DO WE EXPERIENCE EXTRA SLIPPAGE HERE BECAUSE WE DUMP bvm IN THE PROCESS BEFORE EXERCISING TO LP? ************
+    # estimated amount of LP is higher than the amount we actually get, but we get more wBLT than we estimate
+
+    # use our preset slippage and amount
+    bvm_exercise_helper.exerciseToLp(
+        obvm,
+        to_exercise,
+        profit_slippage,
+        swap_slippage,
+        percent_to_lp,
+        discount,
+        {"from": obvm_whale},
+    )
+
+    assert obvm.balanceOf(obvm_whale) == obvm_before - to_exercise
+
+    fees = weth.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a") - fee_before
+
+    assert bvm.balanceOf(bvm_exercise_helper) == 0
+    assert weth.balanceOf(bvm_exercise_helper) == 0
+    assert obvm.balanceOf(bvm_exercise_helper) == 0
+    assert gauge.balanceOf(bvm_exercise_helper) == 0
+
+    weth_received = weth.balanceOf(obvm_whale) - weth_before
+    bvm_received = bvm.balanceOf(obvm_whale) - bvm_before
+    lp_received = gauge.balanceOf(obvm_whale) - lp_before
+
+    print("\nReceived", weth_received / 1e18, "WETH")  # $1600
+    print("Received", bvm_received / 1e18, "BVM")  # $0.55
+    print("LP Received:", lp_received / 1e18)  # $1.52941176471
+    print("\n🤑 Took", "{:,.9f}".format(fees / 1e18), "WETH in fees\n")
+
+
 def test_bmx_exercise_helper(
     obmx, bmx, bmx_exercise_helper, weth, router, usdc, w_blt, receive_underlying
 ):
@@ -136,6 +202,7 @@ def test_bmx_exercise_helper(
     assert usdc.balanceOf(bmx_exercise_helper) == 0
     assert w_blt.balanceOf(bmx_exercise_helper) == 0
     assert obmx.balanceOf(bmx_exercise_helper) == 0
+    assert gauge.balanceOf(bmx_exercise_helper) == 0
 
     weth_received = weth.balanceOf(obmx_whale) - weth_before
     wblt_received = w_blt.balanceOf(obmx_whale) - wblt_before
