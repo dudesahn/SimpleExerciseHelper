@@ -98,12 +98,12 @@ interface IRouter {
 }
 
 /**
- * @title Simple Exercise Helper WETH
- * @notice This contract easily converts oTokens paired with WETH
+ * @title Simple Exercise Helper Base WETH
+ * @notice This contract easily converts oTokens on Base paired with WETH
  *  such as oBVM to WETH using flash loans.
  */
 
-contract SimpleExerciseHelperWETH is Ownable2Step {
+contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     /// @notice WETH, payment token
     IERC20 internal constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
