@@ -65,6 +65,22 @@ interface IRouter {
         uint256 _bltAmountNeeded
     ) external view returns (uint256);
 
+    function quoteRedeemAmountBLT(
+        address _underlyingToken,
+        uint256 _amount
+    ) external view returns (uint256 wBLTAmount);
+
+    function getReserves(
+        address tokenA,
+        address tokenB,
+        bool stable
+    ) external view returns (uint reserve0, uint reserve1);
+
+    function sortTokens(
+        address tokenA,
+        address tokenB
+    ) external view returns (address token0, address token1);
+
     function getAmountsOut(
         uint amountIn,
         route[] memory routes
@@ -117,7 +133,7 @@ contract wBLTExerciseHelper is Ownable2Step {
 
     /// @notice BMX router for swaps
     IRouter internal constant router =
-        IRouter(0x85237cc566926eCfDD1edBf2a38dA7608B2246C0);
+        IRouter(0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5);
 
     /// @notice BVM router for quoteAddLiquidity
     IRouter internal constant bvmRouter =
@@ -300,31 +316,31 @@ contract wBLTExerciseHelper is Ownable2Step {
             _optionTokenAmount,
             swapRoute
         );
-        uint256 amountOut = amounts[2];
-        uint256 minAmountOut = wethNeeded + (amountOut * fee) / MAX_BPS;
+        uint256 minAmount = amounts[2];
+        minAmount = wethNeeded + (minAmount * fee) / MAX_BPS;
 
-        // add in an extra 2.5% buffer, just like we do when exercising
-        minAmountOut = (minAmountOut * 10_250) / MAX_BPS;
+        // calculate how much underlying we need to get at least this much WETH
+        // first do our WETH -> wBLT step
+        minAmount = router.quoteRedeemAmountBLT(address(weth), minAmount);
 
-        // generate our new route for WETH -> underlying
-        swapRoute[0] = IRouter.route(address(weth), address(wBLT), false);
-        swapRoute[1] = IRouter.route(
-            address(wBLT),
-            IoToken(_oToken).underlyingToken(),
-            false
-        );
-
-        // how much underlying needs to go toward our flashloan costs?
-        amounts = router.getAmountsOut(minAmountOut, swapRoute);
-        amountOut = amounts[2];
+        // then do our wBLT -> underlying step
+        address[] memory underlyingTowBLT = new address[](2);
+        underlyingTowBLT[0] = IoToken(_oToken).underlyingToken();
+        underlyingTowBLT[1] = address(wBLT);
+        amounts = getAmountsIn(minAmount, underlyingTowBLT);
+        minAmount = amounts[0];
 
         // calculate our real and expected profit
-        realProfit = _optionTokenAmount - amountOut;
+        realProfit = _optionTokenAmount - minAmount;
         expectedProfit =
             (((_optionTokenAmount *
                 (DISCOUNT_DENOMINATOR - IoToken(_oToken).discount())) /
                 IoToken(_oToken).discount()) * (MAX_BPS - fee)) /
             MAX_BPS;
+
+        // assume ~10% in swap fees as we go WETH -> BMX and back on approximately 10x
+        //  the assets we actually take in profit with roughly 1% in total swap fees
+        expectedProfit = (expectedProfit * (MAX_BPS - 1_000)) / MAX_BPS;
 
         // if profitSlippage returns zero, we have positive slippage (extra profit)
         if (expectedProfit > realProfit) {
@@ -343,17 +359,25 @@ contract wBLTExerciseHelper is Ownable2Step {
     }
 
     /**
-     * @notice Simulate our output, exercising oToken to LP, given various input parameters. Any extra is sent to user as wBLT.
+     * @notice Simulate our output, exercising oToken to LP, given various input
+     *  parameters. Any extra is sent to user as wBLT.
+     * @dev Returned lpAmountOut matches exactly with simulating an oToken exerciseLp()
+     *  call. However, we slightly overestimate what is returned by this contract's
+     *  exerciseToLp() due to changing the blockchain state with multiple swaps prior to
+     *  the final oToken exerciseLp() call.
      * @param _oToken The option token we are exercising.
      * @param _optionTokenAmount The amount of oToken to exercise to LP.
-     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
-     * @param _percentToLp Out of 10,000. How much our oToken should we send to exercise for LP?
+     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options
+     *  on profit outcomes.
+     * @param _percentToLp Out of 10,000. How much our oToken should we send to exercise
+     *  for LP?
      * @param _discount Our discount percentage for LP. How long do we want to lock for?
-     * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
+     * @return withinSlippageTolerance Whether expected vs real profit fall within our
+     *  slippage tolerance.
      * @return lpAmountOut Simulated amount of LP token to receive.
      * @return wBLTOut Simulated amount of wBLT to receive.
-     * @return profitSlippage Expected profit slippage with given oToken amount, 18 decimals. Zero
-     *  means extra profit (positive slippage).
+     * @return profitSlippage Expected profit slippage with given oToken amount, 18
+     *  decimals. Zero means extra profit (positive slippage).
      */
     function quoteExerciseLp(
         address _oToken,
@@ -387,7 +411,6 @@ contract wBLTExerciseHelper is Ownable2Step {
             10_000;
 
         // simulate exercising our oTokens (this call accounts for repaying WETH flash loan & fees)
-        // QUOTE TO EXERCISE UNDERLYING OVER-ESTIMATES PROFIT
         (, , uint256 underlyingAmountOut, , ) = quoteExerciseToUnderlying(
             _oToken,
             oTokensToSell,
@@ -396,7 +419,7 @@ contract wBLTExerciseHelper is Ownable2Step {
 
         // simulate swapping our underlyingToken to wBLT
         address underlying = IoToken(_oToken).underlyingToken();
-        uint256 wBLTAmountOut = router.getAmountOut(
+        uint256 wBLTAmountOut = bvmRouter.getAmountOut(
             underlyingAmountOut,
             underlying,
             address(wBLT),
@@ -474,7 +497,7 @@ contract wBLTExerciseHelper is Ownable2Step {
             revert("Profit not within slippage tolerance, check TWAP");
         }
 
-        // get our flash loan started
+        // convert tokens to underlying vs WETH as theoretically it should be lower fee overall
         _borrowPaymentToken(
             _oToken,
             oTokensToSell,
@@ -483,8 +506,31 @@ contract wBLTExerciseHelper is Ownable2Step {
             _swapSlippageAllowed
         );
 
-        // use this to minimize issues with slippage
+        // convert any leftover WETH to underlying
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
+        uint256 wethBalance = weth.balanceOf(address(this));
+
+        if (wethBalance > 0) {
+            // generate our route for swapping
+            IRouter.route[] memory wethToToken = new IRouter.route[](2);
+            wethToToken[0] = IRouter.route(address(weth), address(wBLT), false);
+            wethToToken[1] = IRouter.route(
+                address(wBLT),
+                address(underlying),
+                false
+            );
+
+            // swap, update wethBalance
+            router.swapExactTokensForTokens(
+                wethBalance,
+                0,
+                wethToToken,
+                address(this),
+                block.timestamp
+            );
+        }
+
+        // use this to minimize issues with slippage
         uint256 wBLTAmountOut = router.getAmountOut(
             1e18,
             address(underlying),
@@ -515,46 +561,36 @@ contract wBLTExerciseHelper is Ownable2Step {
             block.timestamp
         );
 
-        // anything remaining in the helper is pure profit
-        uint256 wethBalance = weth.balanceOf(address(this));
-        uint256 wBLTBalance = wBLT.balanceOf(address(this));
-        uint256 underlyingBalance = underlying.balanceOf(address(this));
-
-        // convert any significant remaining wBLT to underlying
-        if (wBLTBalance > 1e17) {
-            bvmRouter.swapExactTokensForTokensSimple(
-                wBLTBalance,
-                0,
-                address(wBLT),
-                address(underlying),
-                false,
-                address(this),
-                block.timestamp
-            );
-            wBLTBalance = wBLT.balanceOf(address(this));
-        }
-
-        // convert any significant remaining WETH to underlying
+        // convert any significant remaining WETH to wBLT
+        wethBalance = weth.balanceOf(address(this));
         if (wethBalance > 1e14) {
-            // generate our route for swapping
-            IRouter.route[] memory wethToToken = new IRouter.route[](2);
-            wethToToken[0] = IRouter.route(address(weth), address(wBLT), false);
-            wethToToken[1] = IRouter.route(
-                address(wBLT),
-                address(underlying),
-                false
-            );
-
             // swap, update wethBalance
             router.swapExactTokensForTokens(
                 wethBalance,
                 0,
-                wethToToken,
+                wethToWblt,
                 address(this),
                 block.timestamp
             );
             wethBalance = weth.balanceOf(address(this));
         }
+
+        // convert any significant remaining underlying to wBLT
+        uint256 underlyingBalance = underlying.balanceOf(address(this));
+        if (underlyingBalance > 1e17) {
+            bvmRouter.swapExactTokensForTokensSimple(
+                underlyingBalance,
+                0,
+                address(underlying),
+                address(wBLT),
+                false,
+                address(this),
+                block.timestamp
+            );
+            underlyingBalance = underlying.balanceOf(address(this));
+        }
+
+        uint256 wBLTBalance = wBLT.balanceOf(address(this));
 
         if (wBLTBalance > 0) {
             _safeTransfer(address(wBLT), msg.sender, wBLTBalance);
@@ -613,25 +649,25 @@ contract wBLTExerciseHelper is Ownable2Step {
         );
 
         // anything remaining in the helper is pure profit
-        uint256 wethBalance = weth.balanceOf(address(this));
         uint256 wBLTBalance = wBLT.balanceOf(address(this));
-
+        
+        // convert any significant remaining wBLT to WETH
+        if (wBLTBalance > 1e17) {
+            router.swapExactTokensForTokens(
+                wBLTBalance,
+                0,
+                wBltToWeth,
+                address(this),
+                block.timestamp
+            );
+            wBLTBalance = wBLT.balanceOf(address(this));
+        }
+        
+        uint256 wethBalance = weth.balanceOf(address(this));
+        
         if (_receiveUnderlying) {
             // pull out our underlying token
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
-
-            // convert any significant remaining wBLT to WETH
-            if (wBLTBalance > 1e17) {
-                router.swapExactTokensForTokens(
-                    wBLTBalance,
-                    0,
-                    wBltToWeth,
-                    address(this),
-                    block.timestamp
-                );
-                wBLTBalance = wBLT.balanceOf(address(this));
-                wethBalance = weth.balanceOf(address(this));
-            }
 
             // swap any leftover WETH to underlying, unless dust, then just send back as WETH
             if (wethBalance > 1e14) {
@@ -667,18 +703,6 @@ contract wBLTExerciseHelper is Ownable2Step {
                     msg.sender,
                     underlyingBalance
                 );
-            }
-        } else {
-            // convert any significant remaining wBLT to WETH
-            if (wBLTBalance > 1e17) {
-                router.swapExactTokensForTokens(
-                    wBLTBalance,
-                    0,
-                    wBltToWeth,
-                    address(this),
-                    block.timestamp
-                );
-                wBLTBalance = wBLT.balanceOf(address(this));
             }
         }
 
@@ -773,8 +797,6 @@ contract wBLTExerciseHelper is Ownable2Step {
         uint256 payback = _amounts[0] + _feeAmounts[0];
         _safeTransfer(address(weth), address(balancerVault), payback);
         flashEntered = false;
-
-        //
     }
 
     /**
@@ -800,7 +822,7 @@ contract wBLTExerciseHelper is Ownable2Step {
             (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
 
         // deposit our WETH to wBLT
-        uint256[] memory amountsWeth = router.swapExactTokensForTokens(
+        amounts = router.swapExactTokensForTokens(
             _wethAmount,
             minAmountOut,
             wethToWblt,
@@ -810,7 +832,7 @@ contract wBLTExerciseHelper is Ownable2Step {
 
         IoToken(_oToken).exercise(
             _optionTokenAmount,
-            amountsWeth[1],
+            amounts[1],
             address(this)
         );
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
@@ -842,19 +864,21 @@ contract wBLTExerciseHelper is Ownable2Step {
             uint256 feeAmount = (totalWeth * fee) / MAX_BPS;
             minAmountOut = feeAmount + _wethAmount;
 
-            // simulate swapping in this amount of WETH for underlying, with an extra 2.5% as buffer
-            uint256 minWithBuffer = (minAmountOut * 10_250) / MAX_BPS;
-            IRouter.route[] memory wethToToken = new IRouter.route[](2);
-            wethToToken[0] = IRouter.route(address(weth), address(wBLT), false);
-            wethToToken[1] = IRouter.route(
-                address(wBLT),
-                address(underlying),
-                false
+            // calculate how much underlying we need to get at least this much WETH
+            // first do our WETH -> wBLT step
+            uint256 underlyingToSwap = router.quoteRedeemAmountBLT(
+                address(weth),
+                minAmountOut
             );
-            amounts = router.getAmountsOut(minWithBuffer, wethToToken);
-            uint256 underlyingToSwap = amounts[2];
 
-            // swap enough underlying to WETH to (theoretically) cover our flashloan repayment with fees
+            // then do our wBLT -> underlying step
+            address[] memory underlyingTowBLT = new address[](2);
+            underlyingTowBLT[0] = address(underlying);
+            underlyingTowBLT[1] = address(wBLT);
+            amounts = getAmountsIn(underlyingToSwap, underlyingTowBLT);
+            underlyingToSwap = amounts[0];
+
+            // swap our underlying amount calculated above
             router.swapExactTokensForTokens(
                 underlyingToSwap,
                 minAmountOut,
@@ -891,22 +915,6 @@ contract wBLTExerciseHelper is Ownable2Step {
         _safeTransfer(address(weth), feeAddress, toSend);
     }
 
-    // helper to approve new oTokens to spend wBLT, etc. from this contract
-    function _checkAllowance(address _oToken) internal {
-        if (wBLT.allowance(address(this), _oToken) == 0) {
-            wBLT.approve(_oToken, type(uint256).max);
-            weth.approve(_oToken, type(uint256).max);
-
-            // approve router to spend underlying from this contract
-            IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
-            underlying.approve(address(router), type(uint256).max);
-
-            // approve BVM router to spend underlying & wBLT
-            underlying.approve(address(bvmRouter), type(uint256).max);
-            wBLT.approve(address(bvmRouter), type(uint256).max);
-        }
-    }
-
     /**
      * @notice Sweep out tokens accidentally sent here.
      * @dev May only be called by owner.
@@ -935,6 +943,58 @@ contract wBLTExerciseHelper is Ownable2Step {
     }
 
     /* ========== HELPER FUNCTIONS ========== */
+
+    // given an output amount of an asset and pair reserves, returns a required input amount of the other asset
+    // assumes 0.3% fee
+    function getAmountIn(
+        uint amountOut,
+        uint reserveIn,
+        uint reserveOut
+    ) internal pure returns (uint amountIn) {
+        require(amountOut > 0, "getAmountIn: amountOut must be >0");
+        require(
+            reserveIn > 0 && reserveOut > 0,
+            "getAmountIn: Reserves must both be >0"
+        );
+        uint numerator = reserveIn * amountOut * 1000;
+        uint denominator = (reserveOut - amountOut) * 997;
+        amountIn = (numerator / denominator) + 1;
+    }
+
+    // performs chained getAmountIn calculations on any number of pairs
+    // just pass addresses directly since we won't use stable pools
+    function getAmountsIn(
+        uint amountOut,
+        address[] memory path
+    ) public view returns (uint[] memory amounts) {
+        require(path.length >= 2, "getAmountsIn: Path length must be >1");
+        amounts = new uint[](path.length);
+        amounts[amounts.length - 1] = amountOut;
+        for (uint i = path.length - 1; i > 0; i--) {
+            (uint reserveIn, uint reserveOut) = bvmRouter.getReserves(
+                path[i - 1],
+                path[i],
+                false
+            );
+            amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut);
+        }
+    }
+
+    // helper to approve new oTokens to spend wBLT, etc. from this contract
+    function _checkAllowance(address _oToken) internal {
+        if (wBLT.allowance(address(this), _oToken) == 0) {
+            wBLT.approve(_oToken, type(uint256).max);
+            weth.approve(_oToken, type(uint256).max);
+
+            // approve router to spend underlying from this contract
+            IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
+            underlying.approve(address(router), type(uint256).max);
+
+            // approve BVM router to spend underlying & wBLT
+            underlying.approve(address(bvmRouter), type(uint256).max);
+            wBLT.approve(address(bvmRouter), type(uint256).max);
+        }
+    }
 
     function _safeTransfer(address token, address to, uint256 value) internal {
         require(token.code.length > 0);
