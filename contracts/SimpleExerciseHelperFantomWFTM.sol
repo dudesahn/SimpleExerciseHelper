@@ -119,6 +119,9 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
+    /// @notice Used to track the deployed version of this contract.
+    string public constant releaseVersion = "0.2.0";
+
     /// @notice Where we send our 0.25% fee
     address public feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
