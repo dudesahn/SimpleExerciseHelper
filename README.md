@@ -1,26 +1,35 @@
 # README
 
-## CurveGlobal.sol
+## Simple Exercise Helper
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/CurveGlobal.sol
+- This contract simplifies the process of redeeming oTokens (such as oBMX, oFVM) paired with other vanilla tokens
+  (WETH, WFTM) for the vanilla token, underlying, or for the LP of underlying asset.
+- Typically, the `paymentToken` is needed up front for redemption. This contract uses flash loans to eliminate that
+  requirement.
+- View functions `quoteExerciseProfit`, `quoteExerciseToUnderlying`, and `quoteExerciseLp` are provided to be useful
+  both internally and externally for estimations of output and optimal inputs.
+- A 0.25% fee is sent to `feeAddress` on each exercise. Fee is adjustable between 0-1%.
 
-This is our factory for creating yVaults for Curve pool tokens, with one strategy to farm via Convex.
-There are lots of setters that we can use to make changes to future vaults/strategies created by the factory.
-The createNewVaultsAndStrategies function allows any user to create a yVault for a Curve LP token by entering a gauge (provided one doesn't already exist).
-The gauge is used to identify the lpToken and the Convex pid.
-Then we create the new automated vault and the Convex strategy.
-Finally we add the strategy to the vault.
+### Testing
 
-## StrategyConvexFactoryClonable.sol
+To run the test suite:
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/StrategyConvexFactoryClonable.sol
+```
+brownie test -s
+```
 
-This is our Convex strategy that is created by CurveGlobal and automatically added to each vault it creates.
-It's a simple auto-compounder for Convex.
-It deposits Curve pool tokens into Convex and then periodically claims CRV and CVX rewards, swaps them for the vault's Curve pool tokens, and deposits those back into Convex to earn more rewards.
+To generate a coverage report:
 
-## KeeperWrapper.sol
+```
+brownie test --coverage
+```
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/KeeperWrapper.sol
+Then to visualize:
 
-If set as the keeper of the strategy, this contract will make keeper functions (like harvest) public.
+```
+brownie gui
+```
+
+Note that to properly test both branches of our WFTM balance checks in `exercise()` and `exerciseToLp()`, the tests note
+that it is easiest to adjust the WFTM threshold values on the specified lines. With these adjustments, all functions,
+with the exception of `_safeTransfer`, `_safeTransferFrom`, and `getAmountIn` are 100% covered.

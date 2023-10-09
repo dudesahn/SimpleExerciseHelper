@@ -59,7 +59,7 @@ def tenderly_fork(web3, chain):
 
 ################################################ UPDATE THINGS BELOW HERE ################################################
 
-
+# use this to test both exercising for WETH and underlying
 @pytest.fixture(
     params=[
         True,
@@ -69,6 +69,19 @@ def tenderly_fork(web3, chain):
     scope="function",
 )
 def receive_underlying(request):
+    yield request.param
+
+
+# use this to simulate positive slippage (times when spot price is higher than TWAP price)
+@pytest.fixture(
+    params=[
+        True,
+        False,
+    ],
+    ids=["buy_underlying", "do_nothing"],
+    scope="function",
+)
+def buy_underlying(request):
     yield request.param
 
 
@@ -92,6 +105,11 @@ def screamsh():
 @pytest.fixture(scope="session")
 def ofvm_whale():
     yield accounts.at("0x9aCf8D0315094d33Aa6875B673EB126483C3A2c0", force=True)
+
+
+@pytest.fixture(scope="session")
+def fvm_whale():
+    yield accounts.at("0xc350eEd2C03D422349Df0398072a2F35A37E4Ad5", force=True)
 
 
 @pytest.fixture(scope="session")
