@@ -3,7 +3,7 @@ from brownie import config, Contract, ZERO_ADDRESS, chain, interface, accounts
 import pytest
 
 # the most effective way to test a situation where we have enough leftover WETH to swap is
-#  to decrease the value on line 549 to 0
+#  to decrease the value on line 550 to 0
 def test_bvm_exercise_helper(
     obvm,
     bvm_exercise_helper,
@@ -113,7 +113,7 @@ def test_bvm_exercise_helper(
 
 
 # the most effective way to test a situation where we have "dust" WETH is to increase
-#  the value on line 465 to 1e19
+#  the value on line 466 to 1e19
 def test_bvm_exercise_helper_lp(
     obvm,
     bvm_exercise_helper,
@@ -359,7 +359,7 @@ def test_bvm_exercise_helper_reverts(
     with brownie.reverts("getAmountsIn: Path length must be >1"):
         bvm_exercise_helper.getAmountsIn(1e18, [weth.address], {"from": screamsh})
 
-    with brownie.reverts("_getAmountIn: amountOut must be >0"):
+    with brownie.reverts("_getAmountIn: _amountOut must be >0"):
         bvm_exercise_helper.getAmountsIn(
             0, [weth.address, bvm.address], {"from": screamsh}
         )
