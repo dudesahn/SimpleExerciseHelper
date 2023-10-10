@@ -682,8 +682,8 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 underlyingReceived = underlying.balanceOf(address(this));
 
-        IRouter.route[] memory underlyingToWftm = new IRouter.route[](1);
-        underlyingToWftm[0] = IRouter.route(
+        IRouter.Route[] memory underlyingToWftm = new IRouter.Route[](1);
+        underlyingToWftm[0] = IRouter.Route(
             address(underlying),
             address(wftm),
             false
