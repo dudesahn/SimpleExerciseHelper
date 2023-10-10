@@ -6,33 +6,31 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 interface IoToken is IERC20 {
     function exercise(
-        uint256 _amount,
-        uint256 _maxPaymentAmount,
-        address _recipient
+        uint256 amount,
+        uint256 maxPaymentAmount,
+        address recipient
     ) external returns (uint256);
 
-    function getDiscountedPrice(
-        uint256 _amount
-    ) external view returns (uint256);
+    function getDiscountedPrice(uint256 amount) external view returns (uint256);
 
     function discount() external view returns (uint256);
 
     function underlyingToken() external view returns (address);
 
     function getPaymentTokenAmountForExerciseLp(
-        uint256 _amount,
-        uint256 _discount
+        uint256 amount,
+        uint256 discount
     )
         external
         view
         returns (uint256 paymentAmount, uint256 paymentAmountToAddLiquidity);
 
     function exerciseLp(
-        uint256 _amount,
-        uint256 _maxPaymentAmount,
-        address _recipient,
-        uint256 _discount,
-        uint256 _deadline
+        uint256 amount,
+        uint256 maxPaymentAmount,
+        address recipient,
+        uint256 discount,
+        uint256 deadline
     ) external returns (uint256, uint256);
 }
 
@@ -46,7 +44,7 @@ interface IBalancer {
 }
 
 interface IRouter {
-    struct route {
+    struct Route {
         address from;
         address to;
         bool stable;
@@ -56,44 +54,47 @@ interface IRouter {
         address tokenA,
         address tokenB,
         bool stable
-    ) external view returns (uint reserve0, uint reserve1);
+    ) external view returns (uint256 reserve0, uint256 reserve1);
 
     function getAmountOut(
-        uint amountIn,
+        uint256 amountIn,
         address tokenIn,
         address tokenOut,
         bool stable
-    ) external view returns (uint amount);
+    ) external view returns (uint256 amount);
 
     function getAmountsOut(
-        uint amountIn,
-        route[] memory routes
+        uint256 amountIn,
+        Route[] memory routes
     ) external view returns (uint[] memory amounts);
 
     function quoteAddLiquidity(
         address tokenA,
         address tokenB,
         bool stable,
-        uint amountADesired,
-        uint amountBDesired
-    ) external view returns (uint amountA, uint amountB, uint liquidity);
+        uint256 amountADesired,
+        uint256 amountBDesired
+    )
+        external
+        view
+        returns (uint256 amountA, uint256 amountB, uint256 liquidity);
 
     function swapExactTokensForTokens(
-        uint amountIn,
-        uint amountOutMin,
-        route[] calldata routes,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        Route[] calldata routes,
         address to,
-        uint deadline
+        uint256 deadline
     ) external returns (uint[] memory amounts);
 
     function swapExactTokensForTokensSimple(
-        uint amountIn,
-        uint amountOutMin,
+        uint256 amountIn,
+        uint256 amountOutMin,
         address tokenFrom,
         address tokenTo,
         bool stable,
         address to,
-        uint deadline
+        uint256 deadline
     ) external returns (uint[] memory amounts);
 }
 
@@ -462,7 +463,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         // convert any significant remaining WETH to underlying
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 1e19) {
+        if (wethBalance > 1e14) {
             // swap, update wethBalance
             router.swapExactTokensForTokensSimple(
                 wethBalance,
@@ -546,7 +547,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
 
             // swap any significant leftover WETH to underlying, but should just be dust
             //  left if we did our calculations properly
-            if (wethBalance > 0) {
+            if (wethBalance > 1e14) {
                 router.swapExactTokensForTokensSimple(
                     wethBalance,
                     0,
@@ -559,15 +560,9 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
                 wethBalance = weth.balanceOf(address(this));
             }
 
-            // send underlying to user
+            // send underlying to user, no realistic way this is 0 so skip an if check
             uint256 underlyingBalance = underlying.balanceOf(address(this));
-            if (underlyingBalance > 0) {
-                _safeTransfer(
-                    address(underlying),
-                    msg.sender,
-                    underlyingBalance
-                );
-            }
+            _safeTransfer(address(underlying), msg.sender, underlyingBalance);
         }
 
         if (wethBalance > 0) {
@@ -684,8 +679,8 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 underlyingReceived = underlying.balanceOf(address(this));
 
-        IRouter.route[] memory underlyingToWeth = new IRouter.route[](1);
-        underlyingToWeth[0] = IRouter.route(
+        IRouter.Route[] memory underlyingToWeth = new IRouter.Route[](1);
+        underlyingToWeth[0] = IRouter.Route(
             address(underlying),
             address(weth),
             false
@@ -797,31 +792,31 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      * @param reserveOut Pair reserve of our amountOut token.
      * @return amountIn Amount of reserveIn to swap to receive amountOut.
      */
-    function getAmountIn(
-        uint amountOut,
-        uint reserveIn,
-        uint reserveOut
-    ) internal pure returns (uint amountIn) {
+    function _getAmountIn(
+        uint256 amountOut,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) internal pure returns (uint256 amountIn) {
         if (amountOut == 0) {
-            revert("getAmountIn: amountOut must be >0");
+            revert("_getAmountIn: amountOut must be >0");
         }
         if (reserveIn == 0 || reserveOut == 0) {
-            revert("getAmountIn: Reserves must be >0");
+            revert("_getAmountIn: Reserves must be >0");
         }
-        uint numerator = reserveIn * amountOut * 1000;
-        uint denominator = (reserveOut - amountOut) * 997;
+        uint256 numerator = reserveIn * amountOut * 1000;
+        uint256 denominator = (reserveOut - amountOut) * 997;
         amountIn = (numerator / denominator) + 1;
     }
 
     /**
-     * @notice Performs chained getAmountIn calculations on any number of pairs.
+     * @notice Performs chained _getAmountIn calculations on any number of pairs.
      * @dev Assumes only volatile pools.
      * @param amountOut Minimum amount we need to receive of the final array token.
      * @param path Array of addresses for our swap path, UniV2-style.
      * @return amounts Array of amounts for each token in our swap path.
      */
     function getAmountsIn(
-        uint amountOut,
+        uint256 amountOut,
         address[] memory path
     ) public view returns (uint[] memory amounts) {
         if (path.length < 2) {
@@ -829,13 +824,13 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         }
         amounts = new uint[](path.length);
         amounts[amounts.length - 1] = amountOut;
-        for (uint i = path.length - 1; i > 0; i--) {
-            (uint reserveIn, uint reserveOut) = router.getReserves(
+        for (uint256 i = path.length - 1; i > 0; i--) {
+            (uint256 reserveIn, uint256 reserveOut) = router.getReserves(
                 path[i - 1],
                 path[i],
                 false
             );
-            amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut);
+            amounts[i - 1] = _getAmountIn(amounts[i], reserveIn, reserveOut);
         }
     }
 
