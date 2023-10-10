@@ -35,7 +35,9 @@ that it is easiest to adjust the WETH threshold values on the specified lines. W
 with the exception of `_safeTransfer`, `_safeTransferFrom`, and `getAmountIn` are 100% covered.
 
 ### Test Results
+
 #### Default settings
+
 ```
   contract: SimpleExerciseHelperBaseWETH - 87.7%
     Ownable._checkOwner - 100.0%
@@ -53,8 +55,11 @@ with the exception of `_safeTransfer`, `_safeTransferFrom`, and `getAmountIn` ar
     SimpleExerciseHelperBaseWETH.exercise - 75.0%
     SimpleExerciseHelperBaseWETH._getAmountIn - 66.7%
 ```
+
 #### Using alternate values suggested in `test_exercise_helper`
+
 Hits the opposite sides of the `if` statements for 100% total coverage.
+
 ```
   contract: SimpleExerciseHelperBaseWETH - 88.4%
     Ownable._checkOwner - 100.0%

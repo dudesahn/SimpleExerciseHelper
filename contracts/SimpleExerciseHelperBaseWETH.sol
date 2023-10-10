@@ -66,7 +66,7 @@ interface IRouter {
     function getAmountsOut(
         uint256 amountIn,
         Route[] memory routes
-    ) external view returns (uint[] memory amounts);
+    ) external view returns (uint256[] memory amounts);
 
     function quoteAddLiquidity(
         address tokenA,
@@ -85,7 +85,7 @@ interface IRouter {
         Route[] calldata routes,
         address to,
         uint256 deadline
-    ) external returns (uint[] memory amounts);
+    ) external returns (uint256[] memory amounts);
 
     function swapExactTokensForTokensSimple(
         uint256 amountIn,
@@ -95,7 +95,7 @@ interface IRouter {
         bool stable,
         address to,
         uint256 deadline
-    ) external returns (uint[] memory amounts);
+    ) external returns (uint256[] memory amounts);
 }
 
 /**
@@ -121,7 +121,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     bool public flashEntered;
 
     /// @notice Used to track the deployed version of this contract.
-    string public constant releaseVersion = "0.2.0";
+    string public constant apiVersion = "0.2.0";
 
     /// @notice Where we send our 0.25% fee
     address public feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
@@ -821,11 +821,11 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     function getAmountsIn(
         uint256 _amountOut,
         address[] memory _path
-    ) public view returns (uint[] memory amounts) {
+    ) public view returns (uint256[] memory amounts) {
         if (_path.length < 2) {
             revert("getAmountsIn: Path length must be >1");
         }
-        amounts = new uint[](_path.length);
+        amounts = new uint256[](_path.length);
         amounts[amounts.length - 1] = _amountOut;
         for (uint256 i = _path.length - 1; i > 0; i--) {
             (uint256 reserveIn, uint256 reserveOut) = router.getReserves(
