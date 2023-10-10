@@ -790,47 +790,47 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
      * @notice Given an output amount of an asset and pair reserves, returns a required
      *  input amount of the other asset.
      * @dev Assumes 0.3% fee.
-     * @param amountOut Minimum amount we need to receive of reserveOut token.
-     * @param reserveIn Pair reserve of our amountIn token.
-     * @param reserveOut Pair reserve of our amountOut token.
-     * @return amountIn Amount of reserveIn to swap to receive amountOut.
+     * @param _amountOut Minimum amount we need to receive of _reserveOut token.
+     * @param _reserveIn Pair reserve of our amountIn token.
+     * @param _reserveOut Pair reserve of our _amountOut token.
+     * @return amountIn Amount of _reserveIn to swap to receive _amountOut.
      */
     function _getAmountIn(
-        uint256 amountOut,
-        uint256 reserveIn,
-        uint256 reserveOut
+        uint256 _amountOut,
+        uint256 _reserveIn,
+        uint256 _reserveOut
     ) internal pure returns (uint256 amountIn) {
-        if (amountOut == 0) {
-            revert("_getAmountIn: amountOut must be >0");
+        if (_amountOut == 0) {
+            revert("_getAmountIn: _amountOut must be >0");
         }
-        if (reserveIn == 0 || reserveOut == 0) {
+        if (_reserveIn == 0 || _reserveOut == 0) {
             revert("_getAmountIn: Reserves must be >0");
         }
-        uint256 numerator = reserveIn * amountOut * 1000;
-        uint256 denominator = (reserveOut - amountOut) * 997;
+        uint256 numerator = _reserveIn * _amountOut * 1000;
+        uint256 denominator = (_reserveOut - _amountOut) * 997;
         amountIn = (numerator / denominator) + 1;
     }
 
     /**
      * @notice Performs chained _getAmountIn calculations on any number of pairs.
      * @dev Assumes only volatile pools.
-     * @param amountOut Minimum amount we need to receive of the final array token.
-     * @param path Array of addresses for our swap path, UniV2-style.
+     * @param _amountOut Minimum amount we need to receive of the final array token.
+     * @param _path Array of addresses for our swap path, UniV2-style.
      * @return amounts Array of amounts for each token in our swap path.
      */
     function getAmountsIn(
-        uint256 amountOut,
-        address[] memory path
+        uint256 _amountOut,
+        address[] memory _path
     ) public view returns (uint[] memory amounts) {
-        if (path.length < 2) {
+        if (_path.length < 2) {
             revert("getAmountsIn: Path length must be >1");
         }
-        amounts = new uint[](path.length);
-        amounts[amounts.length - 1] = amountOut;
-        for (uint256 i = path.length - 1; i > 0; i--) {
+        amounts = new uint[](_path.length);
+        amounts[amounts.length - 1] = _amountOut;
+        for (uint256 i = _path.length - 1; i > 0; i--) {
             (uint256 reserveIn, uint256 reserveOut) = router.getReserves(
-                path[i - 1],
-                path[i],
+                _path[i - 1],
+                _path[i],
                 false
             );
             amounts[i - 1] = _getAmountIn(amounts[i], reserveIn, reserveOut);
@@ -855,14 +855,18 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
 
     /**
      * @notice Internal safeTransfer function. Transfer tokens to another address.
-     * @param token Address of token to transfer.
-     * @param to Address to send token to.
-     * @param value Amount of token to send.
+     * @param _token Address of token to transfer.
+     * @param _to Address to send token to.
+     * @param _value Amount of token to send.
      */
-    function _safeTransfer(address token, address to, uint256 value) internal {
-        require(token.code.length > 0);
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(IERC20.transfer.selector, to, value)
+    function _safeTransfer(
+        address _token,
+        address _to,
+        uint256 _value
+    ) internal {
+        require(_token.code.length > 0);
+        (bool success, bytes memory data) = _token.call(
+            abi.encodeWithSelector(IERC20.transfer.selector, _to, _value)
         );
         require(success && (data.length == 0 || abi.decode(data, (bool))));
     }
@@ -871,24 +875,24 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
      * @notice Internal safeTransferFrom function. Transfer tokens from one address to
      *  another.
      * @dev From address must have approved sufficient allowance for this contract.
-     * @param token Address of token to transfer.
-     * @param to Address to send token from.
-     * @param to Address to send token to.
-     * @param value Amount of token to send.
+     * @param _token Address of token to transfer.
+     * @param _from Address to send token from.
+     * @param _to Address to send token to.
+     * @param _value Amount of token to send.
      */
     function _safeTransferFrom(
-        address token,
-        address from,
-        address to,
-        uint256 value
+        address _token,
+        address _from,
+        address _to,
+        uint256 _value
     ) internal {
-        require(token.code.length > 0);
-        (bool success, bytes memory data) = token.call(
+        require(_token.code.length > 0);
+        (bool success, bytes memory data) = _token.call(
             abi.encodeWithSelector(
                 IERC20.transferFrom.selector,
-                from,
-                to,
-                value
+                _from,
+                _to,
+                _value
             )
         );
         require(success && (data.length == 0 || abi.decode(data, (bool))));
