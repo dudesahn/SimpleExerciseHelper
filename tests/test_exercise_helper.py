@@ -3,7 +3,7 @@ from brownie import config, Contract, ZERO_ADDRESS, chain, interface, accounts
 import pytest
 
 # the most effective way to test a situation where we have enough leftover WFTM to swap is
-#  to decrease the value on line 545 to 0
+#  to decrease the value on line 550 to 0
 def test_fvm_exercise_helper(
     ofvm,
     fvm_exercise_helper,
@@ -52,7 +52,10 @@ def test_fvm_exercise_helper(
     real_slippage = (result["expectedProfit"] - result["realProfit"]) / result[
         "expectedProfit"
     ]
-    print("Slippage (manually calculated):", "{:,.2f}%".format(real_slippage * 100))
+    print(
+        "Slippage (manually calculated, negative means extra profit):",
+        "{:,.2f}%".format(real_slippage * 100),
+    )
 
     fvm_exercise_helper.exercise(
         ofvm,
@@ -113,7 +116,7 @@ def test_fvm_exercise_helper(
 
 
 # the most effective way to test a situation where we have "dust" WFTM is to increase
-#  the value on line 462 to 5000e17
+#  the value on line 466 to 5e22
 def test_fvm_exercise_helper_lp(
     ofvm,
     fvm_exercise_helper,
@@ -359,7 +362,7 @@ def test_fvm_exercise_helper_reverts(
     with brownie.reverts("getAmountsIn: Path length must be >1"):
         fvm_exercise_helper.getAmountsIn(1e18, [wftm.address], {"from": screamsh})
 
-    with brownie.reverts("getAmountIn: amountOut must be >0"):
+    with brownie.reverts("_getAmountIn: _amountOut must be >0"):
         fvm_exercise_helper.getAmountsIn(
             0, [wftm.address, fvm.address], {"from": screamsh}
         )
