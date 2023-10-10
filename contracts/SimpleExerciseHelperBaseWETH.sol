@@ -561,8 +561,11 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             }
 
             // send underlying to user, no realistic way this is 0 so skip an if check
-            uint256 underlyingBalance = underlying.balanceOf(address(this));
-            _safeTransfer(address(underlying), msg.sender, underlyingBalance);
+            _safeTransfer(
+                address(underlying),
+                msg.sender,
+                underlying.balanceOf(address(this))
+            );
         }
 
         if (wethBalance > 0) {
