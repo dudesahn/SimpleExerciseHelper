@@ -119,6 +119,9 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
+    /// @notice Used to track the deployed version of this contract.
+    string public constant releaseVersion = "0.2.0";
+
     /// @notice Where we send our 0.25% fee
     address public feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
@@ -265,8 +268,14 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         );
         minAmount = amounts[0];
 
+        // make sure exercising is profitable
+        if (minAmount > _optionTokenAmount) {
+            revert("Cost exceeds profit");
+        } else {
+            realProfit = _optionTokenAmount - minAmount;
+        }
+
         // calculate our real and expected profit
-        realProfit = _optionTokenAmount - minAmount;
         expectedProfit =
             (_optionTokenAmount *
                 ((MAX_BPS *
@@ -338,30 +347,17 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
             10_000;
 
-        // simulate exercising our oTokens to underlying, and check slippage
-        uint256 underlyingAmountOut;
+        // simulate exercising our oTokens to WETH
+        uint256 wethAmountOut;
         (
             ,
             withinSlippageTolerance,
-            underlyingAmountOut,
+            wethAmountOut,
             ,
             profitSlippage
-        ) = quoteExerciseToUnderlying(
-            _oToken,
-            oTokensToSell,
-            _profitSlippageAllowed
-        );
+        ) = quoteExerciseProfit(_oToken, oTokensToSell, _profitSlippageAllowed);
 
-        // simulate swapping our underlyingToken to WETH
-        address underlying = IoToken(_oToken).underlyingToken();
-        uint256 wethAmountOut = router.getAmountOut(
-            underlyingAmountOut,
-            underlying,
-            address(weth),
-            false
-        );
-
-        // simulate using our wBLT amount to LP with our selected discount
+        // simulate using our WETH amount to LP with our selected discount
         uint256 oTokensToLp = _optionTokenAmount - oTokensToSell;
         (uint256 paymentAmount, uint256 matchingForLp) = IoToken(_oToken)
             .getPaymentTokenAmountForExerciseLp(oTokensToLp, _discount);
@@ -373,6 +369,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         }
 
         // how much LP would we get?
+        address underlying = IoToken(_oToken).underlyingToken();
         (, , lpAmountOut) = router.quoteAddLiquidity(
             underlying,
             address(weth),
@@ -425,53 +422,32 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
             10_000;
 
-        // simulate exercising our oTokens to underlying, and check slippage
+        // simulate exercising our oTokens to WETH, and check slippage
         (
             uint256 wethNeeded,
             bool withinSlippageTolerance,
             ,
             ,
 
-        ) = quoteExerciseToUnderlying(
-                _oToken,
-                oTokensToSell,
-                _profitSlippageAllowed
-            );
+        ) = quoteExerciseProfit(_oToken, oTokensToSell, _profitSlippageAllowed);
 
         // revert if slippage is too high
         if (!withinSlippageTolerance) {
-            revert("Profit not within slippage tolerance, check TWAP");
+            revert("Profit slippage higher than allowed");
         }
 
-        // convert tokens to underlying vs WETH as it should be lower fee overall
+        // convert directly to WETH, this is our paymentToken
         _borrowPaymentToken(
             _oToken,
             oTokensToSell,
             wethNeeded,
-            true,
+            false,
             _swapSlippageAllowed
         );
 
         // don't worry about price impact for remaining swaps, as they should be small
         //  enough for it to be negligible, and true slippage (🥪) protection isn't
         //  possible without an external price oracle
-
-        // convert any leftover underlying to WETH before exercising
-        IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
-        uint256 underlyingBalance = underlying.balanceOf(address(this));
-
-        if (underlyingBalance > 0) {
-            // swap underlying to WETH
-            router.swapExactTokensForTokensSimple(
-                underlyingBalance,
-                0,
-                address(underlying),
-                address(weth),
-                false,
-                address(this),
-                block.timestamp
-            );
-        }
 
         // exercise our remaining oTokens and lock LP with msg.sender as recipient
         uint256 oTokensToLp = _optionTokenAmount - oTokensToSell;
@@ -484,8 +460,9 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         );
 
         // convert any significant remaining WETH to underlying
+        IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 1e14) {
+        if (wethBalance > 1e19) {
             // swap, update wethBalance
             router.swapExactTokensForTokensSimple(
                 wethBalance,
@@ -503,7 +480,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             _safeTransfer(address(weth), msg.sender, wethBalance);
         }
 
-        underlyingBalance = underlying.balanceOf(address(this));
+        uint256 underlyingBalance = underlying.balanceOf(address(this));
         if (underlyingBalance > 0) {
             _safeTransfer(address(underlying), msg.sender, underlyingBalance);
         }
@@ -567,8 +544,9 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             // pull out our underlying token
             IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
 
-            // swap any leftover WETH to underlying, unless dust, then send back as WETH
-            if (wethBalance > 1e14) {
+            // swap any significant leftover WETH to underlying, but should just be dust
+            //  left if we did our calculations properly
+            if (wethBalance > 0) {
                 router.swapExactTokensForTokensSimple(
                     wethBalance,
                     0,
@@ -739,8 +717,6 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             minAmountOut = feeAmount + _wethAmount;
 
             // calculate how much underlying we need to get at least this much WETH
-
-            // then do our wBLT -> underlying step
             address[] memory underlyingToWethAddresses = new address[](2);
             underlyingToWethAddresses[0] = address(underlying);
             underlyingToWethAddresses[1] = address(weth);

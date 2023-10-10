@@ -59,7 +59,7 @@ def tenderly_fork(web3, chain):
 
 ################################################ UPDATE THINGS BELOW HERE ################################################
 
-
+# use this to test both exercising for WETH and underlying
 @pytest.fixture(
     params=[
         True,
@@ -72,14 +72,29 @@ def receive_underlying(request):
     yield request.param
 
 
-@pytest.fixture(scope="session")
+# use this to simulate positive slippage (times when spot price is higher than TWAP price)
+@pytest.fixture(
+    params=[
+        True,
+        False,
+    ],
+    ids=["buy_underlying", "do_nothing"],
+    scope="function",
+)
+def buy_underlying(request):
+    yield request.param
+
+
+@pytest.fixture(scope="function")
 def router():
-    yield Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
+    router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # normal BVM router
+    yield router
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def gauge():
-    yield Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")  # BVM-WETH
+    gauge = Contract("0x3f5129112754D4fBE7ab228C2D5E312b2Bc79A06")  # BVM-WETH gauge
+    yield gauge
 
 
 @pytest.fixture(scope="session")
@@ -93,10 +108,13 @@ def obvm_whale():
 
 
 @pytest.fixture(scope="session")
+def bvm_whale():
+    yield accounts.at("0x91F85d68B413dE823684c891db515B0390a02512", force=True)
+
+
+@pytest.fixture(scope="session")
 def weth_whale():
-    yield accounts.at(
-        "0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True
-    )  # WETH-USDbC Aero pool
+    yield accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
 
 
 @pytest.fixture(scope="session")
