@@ -359,7 +359,7 @@ def test_bvm_exercise_helper_reverts(
     with brownie.reverts("getAmountsIn: Path length must be >1"):
         bvm_exercise_helper.getAmountsIn(1e18, [weth.address], {"from": screamsh})
 
-    with brownie.reverts("getAmountIn: amountOut must be >0"):
+    with brownie.reverts("_getAmountIn: amountOut must be >0"):
         bvm_exercise_helper.getAmountsIn(
             0, [weth.address, bvm.address], {"from": screamsh}
         )
