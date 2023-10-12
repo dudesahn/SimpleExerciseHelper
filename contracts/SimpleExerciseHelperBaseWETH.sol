@@ -348,7 +348,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
             10_000;
 
-        // simulate exercising our oTokens to WETH
+        // simulate exercising our oTokens to WETH, and check slippage
         uint256 wethAmountOut;
         (
             ,
@@ -437,7 +437,8 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             revert("Profit slippage higher than allowed");
         }
 
-        // convert directly to WETH, this is our paymentToken
+        // convert directly to WETH, this is our paymentToken. Additionally, by doing
+        //  this, we avoid the need to convert other dust prior to exercising
         _borrowPaymentToken(
             _oToken,
             oTokensToSell,
@@ -463,7 +464,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         // convert any significant remaining WETH to underlying
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 1e14) {
+        if (wethBalance > 1e12) {
             // swap, update wethBalance
             router.swapExactTokensForTokensSimple(
                 wethBalance,
@@ -547,7 +548,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
 
             // swap any significant leftover WETH to underlying, but should just be dust
             //  left if we did our calculations properly
-            if (wethBalance > 1e14) {
+            if (wethBalance > 1e12) {
                 router.swapExactTokensForTokensSimple(
                     wethBalance,
                     0,
