@@ -348,7 +348,7 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
         uint256 oTokensToSell = (_optionTokenAmount * (10_000 - _percentToLp)) /
             10_000;
 
-        // simulate exercising our oTokens to WFTM
+        // simulate exercising our oTokens to WFTM, and check slippage
         uint256 wftmAmountOut;
         (
             ,
@@ -437,7 +437,8 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
             revert("Profit slippage higher than allowed");
         }
 
-        // convert directly to WFTM, this is our paymentToken
+        // convert directly to WFTM, this is our paymentToke. Additionally, by doing
+        //  this, we avoid the need to convert other dust prior to exercising
         _borrowPaymentToken(
             _oToken,
             oTokensToSell,
@@ -463,7 +464,7 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
         // convert any significant remaining WFTM to underlying
         IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
         uint256 wftmBalance = wftm.balanceOf(address(this));
-        if (wftmBalance > 5e17) {
+        if (wftmBalance > 1e15) {
             // swap, update wftmBalance
             router.swapExactTokensForTokensSimple(
                 wftmBalance,
@@ -547,7 +548,7 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
 
             // swap any significant leftover WFTM to underlying, but should just be dust
             //  left if we did our calculations properly
-            if (wftmBalance > 5e17) {
+            if (wftmBalance > 1e15) {
                 router.swapExactTokensForTokensSimple(
                     wftmBalance,
                     0,
