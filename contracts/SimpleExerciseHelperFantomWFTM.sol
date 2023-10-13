@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Ownable2Step} from "@openzeppelin/contracts@4.9.3/access/Ownable2Step.sol";
+import {IERC20} from "@openzeppelin/contracts@4.9.3/token/ERC20/ERC20.sol";
 
 interface IoToken is IERC20 {
     function exercise(
