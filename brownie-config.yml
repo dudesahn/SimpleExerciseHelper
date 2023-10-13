@@ -17,7 +17,7 @@ compiler:
     version:
     remappings:
       - "@yearnvaults=yearn/yearn-vaults@0.4.6"
-      - "@openzeppelin=OpenZeppelin/openzeppelin-contracts@4.9.3"
+      - "@openzeppelin/contracts@4.9.3=OpenZeppelin/openzeppelin-contracts@4.9.3/contracts"
 
 reports:
   exclude_contracts:

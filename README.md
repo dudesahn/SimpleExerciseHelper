@@ -1,6 +1,4 @@
-# README
-
-## Simple Exercise Helper
+# Simple Exercise Helper
 
 - This contract simplifies the process of redeeming oTokens (such as oBMX, oFVM) paired with other vanilla tokens
   (WETH, WFTM) for the vanilla token, underlying, or for the LP of underlying asset.
@@ -10,7 +8,7 @@
   both internally and externally for estimations of output and optimal inputs.
 - A 0.25% fee is sent to `feeAddress` on each exercise. Fee is adjustable between 0-1%.
 
-### Testing
+## Testing
 
 To run the test suite:
 
