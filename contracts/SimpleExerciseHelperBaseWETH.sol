@@ -602,7 +602,6 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         bytes memory userData = abi.encode(
             _oToken,
             _oTokenToExercise,
-            _wethNeeded,
             _receiveUnderlying,
             _slippageAllowed
         );
@@ -638,21 +637,22 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
         (
             address _oToken,
             uint256 _oTokenToExercise,
-            uint256 _wethToExercise,
             bool _receiveUnderlying,
             uint256 _slippageAllowed
-        ) = abi.decode(_userData, (address, uint256, uint256, bool, uint256));
+        ) = abi.decode(_userData, (address, uint256, bool, uint256));
+
+        // pass our total WETH amount to make sure we get enough back
+        uint256 payback = _amounts[0] + _feeAmounts[0];
 
         _exerciseAndSwap(
             _oToken,
             _oTokenToExercise,
-            _wethToExercise,
+            payback,
             _receiveUnderlying,
             _slippageAllowed
         );
 
         // repay our flash loan
-        uint256 payback = _amounts[0] + _feeAmounts[0];
         _safeTransfer(address(weth), address(balancerVault), payback);
         flashEntered = false;
     }
@@ -661,7 +661,8 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
      * @notice Exercise our oToken, then swap some (or all) underlying to WETH.
      * @param _oToken The option token we are exercising.
      * @param _optionTokenAmount Amount of oToken to exercise.
-     * @param _wethAmount Amount of WETH needed to pay for exercising.
+     * @param _wethAmount Max amount of WETH we allow to be spent exercising, and how much
+     *  we'll need back. Note this also includes any fees for flash loans.
      * @param _receiveUnderlying Whether the user wants to receive WETH or underlying.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
@@ -790,7 +791,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
     /**
      * @notice Given an output amount of an asset and pair reserves, returns a required
      *  input amount of the other asset.
-     * @dev Assumes 0.3% fee.
+     * @dev Assumes 1% fee.
      * @param _amountOut Minimum amount we need to receive of _reserveOut token.
      * @param _reserveIn Pair reserve of our amountIn token.
      * @param _reserveOut Pair reserve of our _amountOut token.
@@ -808,7 +809,7 @@ contract SimpleExerciseHelperBaseWETH is Ownable2Step {
             revert("_getAmountIn: Reserves must be >0");
         }
         uint256 numerator = _reserveIn * _amountOut * 1000;
-        uint256 denominator = (_reserveOut - _amountOut) * 997;
+        uint256 denominator = (_reserveOut - _amountOut) * 990;
         amountIn = (numerator / denominator) + 1;
     }
 
