@@ -22,6 +22,22 @@ def tests_using_tenderly():
     yield yes_or_no
 
 
+# useful because it doesn't crash when sometimes ganache does, "works" in coverage testing but then doesn't actually write any data lol
+# if we're using anvil, make sure to use the correct network (ftm-anvil-fork vs ftm-main-fork)
+use_anvil = False
+
+
+@pytest.fixture(scope="session")
+def tests_using_anvil():
+    yes_or_no = use_anvil
+    yield yes_or_no
+
+
+@pytest.fixture(scope="session", autouse=use_anvil)
+def fun_with_anvil(web3):
+    web3.manager.request_blocking("anvil_setNextBlockBaseFeePerGas", ["0x0"])
+
+
 ################################################## TENDERLY DEBUGGING ##################################################
 
 # change autouse to True if we want to use this fork to help debug tests
@@ -138,4 +154,5 @@ def fvm_exercise_helper(SimpleExerciseHelperFantomWFTM, screamsh):
     fvm_exercise_helper = screamsh.deploy(
         SimpleExerciseHelperFantomWFTM,
     )
+    #     fvm_exercise_helper = Contract("0x758aD6A8798F881E4f264aEAA4903eCde86da729")
     yield fvm_exercise_helper

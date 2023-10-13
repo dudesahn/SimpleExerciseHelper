@@ -1,5 +1,6 @@
 # use Ganache's forked mainnet mode as the default network (mainnet-fork)
 # NOTE: You don't *have* to do this, but it is often helpful for testing
+# use both ftm-anvil-fork and ftm-main-fork here
 networks:
   default: ftm-main-fork
 

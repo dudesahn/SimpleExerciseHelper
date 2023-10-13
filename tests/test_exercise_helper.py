@@ -282,8 +282,24 @@ def test_fvm_exercise_helper_lp_weird(
 
 
 def test_fvm_exercise_helper_reverts(
-    ofvm, fvm_exercise_helper, wftm, fvm, ofvm_whale, gauge, screamsh, fvm_whale, router
+    ofvm,
+    fvm_exercise_helper,
+    wftm,
+    fvm,
+    ofvm_whale,
+    gauge,
+    screamsh,
+    fvm_whale,
+    router,
+    tests_using_anvil,
 ):
+    # can't pull revert strings from write functions with anvil from some weird reason
+    if tests_using_anvil:
+        print(
+            "\n🚨🚨 Can't use Anvil 🔨 when testing revert strings on write functions 🚨🚨\n"
+        )
+        return
+
     # control how much we exercise. larger size, more slippage
     to_exercise = 1_000e18
     profit_slippage = 800  # in BPS
