@@ -661,8 +661,8 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
      * @notice Exercise our oToken, then swap some (or all) underlying to WFTM.
      * @param _oToken The option token we are exercising.
      * @param _optionTokenAmount Amount of oToken to exercise.
-     * @param _wftmAmount Max amount of WFTM we allow to be spent exercising. Note this
-     *  also includes any fees for flash loans.
+     * @param _wftmAmount Max amount of WFTM we allow to be spent exercising, and how much
+     *  we'll need back. Note this also includes any fees for flash loans.
      * @param _receiveUnderlying Whether the user wants to receive WFTM or underlying.
      * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
      */
@@ -791,13 +791,15 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
     /**
      * @notice Given an output amount of an asset and pair reserves, returns a required
      *  input amount of the other asset.
-     * @dev Assumes 1% fee.
+     * @dev Pulls the fee correction dynamically from our pair factory.
+     * @param _pair Address of the token pair we are checking on.
      * @param _amountOut Minimum amount we need to receive of _reserveOut token.
      * @param _reserveIn Pair reserve of our amountIn token.
      * @param _reserveOut Pair reserve of our _amountOut token.
      * @return amountIn Amount of _reserveIn to swap to receive _amountOut.
      */
     function _getAmountIn(
+        address _pair,
         uint256 _amountOut,
         uint256 _reserveIn,
         uint256 _reserveOut
@@ -808,8 +810,9 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
         if (_reserveIn == 0 || _reserveOut == 0) {
             revert("_getAmountIn: Reserves must be >0");
         }
-        uint256 numerator = _reserveIn * _amountOut * 1000;
-        uint256 denominator = (_reserveOut - _amountOut) * 990;
+        uint256 numerator = _reserveIn * _amountOut * 10_000;
+        uint256 denominator = (_reserveOut - _amountOut) *
+            (10_000 - pairFactory.getFee(_pair));
         amountIn = (numerator / denominator) + 1;
     }
 
