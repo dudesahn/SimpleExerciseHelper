@@ -43,6 +43,16 @@ interface IBalancer {
     ) external;
 }
 
+interface IPairFactory {
+    function getFee(address pair) external view returns (uint256);
+
+    function getPair(
+        address tokenA,
+        address tokenB,
+        bool stable
+    ) external view returns (address);
+}
+
 interface IRouter {
     struct Route {
         address from;
@@ -116,6 +126,10 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
     /// @notice FVM router for swaps
     IRouter internal constant router =
         IRouter(0x2E14B53E2cB669f3A974CeaF6C735e134F3Aa9BC);
+
+    /// @notice Pair factory, use this to check the current swap fee on a given pool
+    IPairFactory internal constant pairFactory =
+        IPairFactory(0x472f3C3c9608fe0aE8d702f3f8A2d12c410C881A);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
@@ -803,7 +817,7 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
         uint256 _amountOut,
         uint256 _reserveIn,
         uint256 _reserveOut
-    ) internal pure returns (uint256 amountIn) {
+    ) internal view returns (uint256 amountIn) {
         if (_amountOut == 0) {
             revert("_getAmountIn: _amountOut must be >0");
         }
@@ -838,7 +852,13 @@ contract SimpleExerciseHelperFantomWFTM is Ownable2Step {
                 _path[i],
                 false
             );
-            amounts[i - 1] = _getAmountIn(amounts[i], reserveIn, reserveOut);
+            address pair = pairFactory.getPair(_path[i - 1], _path[i], false);
+            amounts[i - 1] = _getAmountIn(
+                pair,
+                amounts[i],
+                reserveIn,
+                reserveOut
+            );
         }
     }
 
